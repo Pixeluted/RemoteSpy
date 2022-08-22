@@ -52,45 +52,13 @@ if not _G.mainWindow then
             Content = message
         })
     end
-    local styleoptions = {
-        WindowRounding = 5,
-        WindowTitleAlign = Vector2.new(0.5, 0.5),
-        WindowBorderSize = 1,
-        FrameRounding = 3,
-        ButtonTextAlign = Vector2.new(0, 0.5),
-    }
-    local coloroptions = {
-        Border = {black, 1},
-        TitleBgActive = {Color3.fromRGB(35, 35, 38), 1},
-        TitleBg = {Color3.fromRGB(35, 35, 38), 1},
-        TitleBgCollapsed = {Color3.fromRGB(35, 35, 38), 0.8},
-        WindowBg = {Color3.fromRGB(50, 50, 53), 1},
-        Button = {Color3.fromRGB(75, 75, 78), 1},
-        ButtonHovered = {Color3.fromRGB(85, 85, 88), 1},
-        ButtonActive = {Color3.fromRGB(115, 115, 118), 1},
-        Text = {Color3.fromRGB(255, 255, 255), 1},
-        ResizeGrip = {black, 0},
-        ResizeGripActive = {black, 0},
-        ResizeGripHovered = {black, 0},
-        CheckMark = {white, 1},
-        FrameBg = {Color3.fromRGB(20, 20, 23), 1},
-        FrameBgHovered = {Color3.fromRGB(22, 22, 25), 1},
-        FrameBgActive = {Color3.fromRGB(30, 30, 35), 1},
-        Tab = {Color3.fromRGB(33, 36, 38), 1},
-        TabActive = {Color3.fromRGB(20, 20, 23), 1},
-        TabHovered = {Color3.fromRGB(119, 119, 119), 1},
-        TabUnfocused = {Color3.fromRGB(60, 60, 60), 1},
-        TabUnfocusedActive = {Color3.fromRGB(20, 20, 23), 1},
-        HeaderHovered = {Color3.fromRGB(55, 55, 55), 1},
-        HeaderActive = {Color3.fromRGB(75, 75, 75), 1},
-    }
     
     local function pushTheme(window: RenderChildBase)
         for i,v in styleOptions do
             window:SetStyle(RenderStyleOption[i], v)
         end
 
-        for i,v in coloroptions do
+        for i,v in colorOptions do
             window:SetColor(RenderColorOption[i], v[1], v[2])
         end
     end

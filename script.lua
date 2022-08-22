@@ -10,15 +10,6 @@ if not _G.mainWindow then
     local white = Color3.fromRGB(255, 255, 255)
     local black = Color3.fromRGB()
 
-    local function pushError(message: string)
-        syn.toast_notification({
-            Type = ToastType.Error,
-            Duration = 5,
-            Title = "Remote Spy",
-            Content = message
-        })
-    end
-
     local styleOptions = {
         WindowRounding = 5,
         WindowTitleAlign = Vector2.new(0.5, 0.5),
@@ -28,6 +19,47 @@ if not _G.mainWindow then
     }
 
     local colorOptions = {
+        Border = {black, 1},
+        TitleBgActive = {Color3.fromRGB(35, 35, 38), 1},
+        TitleBg = {Color3.fromRGB(35, 35, 38), 1},
+        TitleBgCollapsed = {Color3.fromRGB(35, 35, 38), 0.8},
+        WindowBg = {Color3.fromRGB(50, 50, 53), 1},
+        Button = {Color3.fromRGB(75, 75, 78), 1},
+        ButtonHovered = {Color3.fromRGB(85, 85, 88), 1},
+        ButtonActive = {Color3.fromRGB(115, 115, 118), 1},
+        Text = {Color3.fromRGB(255, 255, 255), 1},
+        ResizeGrip = {black, 0},
+        ResizeGripActive = {black, 0},
+        ResizeGripHovered = {black, 0},
+        CheckMark = {white, 1},
+        FrameBg = {Color3.fromRGB(20, 20, 23), 1},
+        FrameBgHovered = {Color3.fromRGB(22, 22, 25), 1},
+        FrameBgActive = {Color3.fromRGB(30, 30, 35), 1},
+        Tab = {Color3.fromRGB(33, 36, 38), 1},
+        TabActive = {Color3.fromRGB(20, 20, 23), 1},
+        TabHovered = {Color3.fromRGB(119, 119, 119), 1},
+        TabUnfocused = {Color3.fromRGB(60, 60, 60), 1},
+        TabUnfocusedActive = {Color3.fromRGB(20, 20, 23), 1},
+        HeaderHovered = {Color3.fromRGB(55, 55, 55), 1},
+        HeaderActive = {Color3.fromRGB(75, 75, 75), 1},
+    }
+
+    local function pushError(message: string)
+        syn.toast_notification({
+            Type = ToastType.Error,
+            Duration = 5,
+            Title = "Remote Spy",
+            Content = message
+        })
+    end
+    local styleoptions = {
+        WindowRounding = 5,
+        WindowTitleAlign = Vector2.new(0.5, 0.5),
+        WindowBorderSize = 1,
+        FrameRounding = 3,
+        ButtonTextAlign = Vector2.new(0, 0.5),
+    }
+    local coloroptions = {
         Border = {black, 1},
         TitleBgActive = {Color3.fromRGB(35, 35, 38), 1},
         TitleBg = {Color3.fromRGB(35, 35, 38), 1},
@@ -291,6 +323,7 @@ if not _G.mainWindow then
         {
             Name = "RemoteEvent",
             Method = "FireServer",
+            DepreciatedMethod = "fireServer",
             Enabled = true,
             Icon = "\xef\x83\xa7",
             Color = Color3.fromRGB(254, 254, 0),
@@ -299,6 +332,7 @@ if not _G.mainWindow then
         {
             Name = "RemoteFunction",
             Method = "InvokeServer",
+            DepreciatedMethod = "invokeServer",
             Enabled = true,
             Icon = "\xef\x81\xa4",
             Color = Color3.fromRGB(250, 152, 251),
@@ -307,6 +341,7 @@ if not _G.mainWindow then
         {
             Name = "BindableEvent",
             Method = "Fire",
+            DepreciatedMethod = "fire",
             Enabled = false,
             Icon = "\xef\x83\xa7",
             Color = Color3.fromRGB(200, 100, 0),
@@ -315,6 +350,7 @@ if not _G.mainWindow then
         {
             Name = "BindableFunction",
             Method = "Invoke",
+            DeprecatedMethod = "invoke",
             Enabled = false,
             Icon = "\xef\x81\xa4",
             Color = Color3.fromRGB(163, 51, 189),
@@ -988,7 +1024,7 @@ if not _G.mainWindow then
         if typeof(self) == "Instance" then
             local nmc = getnamecallmethod()
             for _,v in spyFunctions do
-                if v.Name == self.ClassName and v.Method == nmc then
+                if v.Name == self.ClassName and (v.Method == nmc or v.DeprecatedMethod == nmc) then
                     if not logs[self] then
                         logs[self] = {
                             Blocked = false,
@@ -1046,6 +1082,7 @@ if not _G.mainWindow then
         end
 
         oldfunc = hookfunction(Instance.new(v.Name)[v.Method], newcclosure(newfunction), InstanceFilter.new(1, v.Name))
+        oldfunc = hookfunction(Instance.new(v.Name)[v.DeprecatedMethod], newcclosure(newfunction), InstanceFilter.new(1, v.Name))
 
         spyFunctions[i].Function = newfunction
     end
@@ -1058,6 +1095,10 @@ else
     restorefunction(Instance.new("RemoteFunction").InvokeServer)
     restorefunction(Instance.new("BindableEvent").Fire)
     restorefunction(Instance.new("BindableFunction").Invoke)
+    restorefunction(Instance.new("RemoteEvent").fireServer)
+    restorefunction(Instance.new("RemoteFunction").invokeServer)
+    restorefunction(Instance.new("BindableEvent").fire)
+    restorefunction(Instance.new("BindableFunction").invoke)
     restorefunction(getrawmetatable(game).__namecall)
 end
 

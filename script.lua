@@ -993,24 +993,28 @@ if not _G.mainWindow then
             local nmc = getnamecallmethod()
             for _,v in spyFunctions do
                 if v.Name == self.ClassName and (v.Method == nmc or v.DeprecatedMethod == nmc) then
-                    if not logs[self] then
-                        logs[self] = {
-                            Blocked = false,
-                            Ignored = false,
-                            Calls = {}
-                        }
-                    end
 
-                    if not logs[self].Ignored then
-                        local data = {
-                            Type = v.Name,
-                            Script = getcallingscript(),
-                            Args = {...},
-                            FromSynapse = checkcaller()
-                        }
-                        commsFunc(comms, self, data)
-                    end
-                    if logs[self].Blocked then return end
+                    task.defer(function(...)
+                        if not logs[self] then
+                            logs[self] = {
+                                Blocked = false,
+                                Ignored = false,
+                                Calls = {}
+                            }
+                        end
+
+                        if not logs[self].Ignored then
+                            local data = {
+                                Type = v.Name,
+                                Script = getcallingscript(),
+                                Args = {...},
+                                FromSynapse = checkcaller()
+                            }
+                            commsFunc(comms, self, data)
+                        end
+                    end, ...)
+                    
+                    if logs[self] and logs[self].Blocked then return end
                     break
                 end
             end
@@ -1025,26 +1029,27 @@ if not _G.mainWindow then
         local newfunction = function(self, ...)
             if self == comms then return oldfunc(self, ...) end
 
+            task.defer(function(...)
+                if not logs[self] then
+                    logs[self] = {
+                        Blocked = false,
+                        Ignored = false,
+                        Calls = {}
+                    }
+                end
 
-            if not logs[self] then
-                logs[self] = {
-                    Blocked = false,
-                    Ignored = false,
-                    Calls = {}
-                }
-            end
+                if not logs[self].Ignored then
+                    local data = {
+                        Type = v.Name,
+                        Script = getcallingscript(),
+                        Args = {...},
+                        FromSynapse = checkcaller()
+                    }
+                    commsFunc(comms, self, data)
+                end
+            end, ...)
 
-            if not logs[self].Ignored then
-                local data = {
-                    Type = v.Name,
-                    Script = getcallingscript(),
-                    Args = {...},
-                    FromSynapse = checkcaller()
-                }
-                commsFunc(comms, self, data)
-            end
-
-            if not logs[self].Blocked then
+            if not logs[self] or not logs[self].Blocked then
                 return oldfunc(self, ...)
             end
         end

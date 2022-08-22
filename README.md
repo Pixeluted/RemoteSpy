@@ -1,6 +1,6 @@
 ## Script
 ```lua
-loadstring(syn.request({ Url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/script.lua" }).Body)
+loadstring(syn.request({ Url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/script.lua" }).Body)()
 ```
 
 # Description

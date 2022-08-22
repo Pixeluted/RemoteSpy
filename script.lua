@@ -435,7 +435,7 @@ if not _G.mainWindow then
         local newEntry = table.clone(v)
         newEntry.Method = deprecatedMethod
 
-        table.insert(newEntry)
+        table.insert(spyFunctions, newEntry)
     end
     
     _G.mainWindow = RenderWindow.new("Remote Spy")

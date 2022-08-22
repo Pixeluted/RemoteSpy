@@ -52,11 +52,11 @@ if not _G.mainWindow then
     }
     
     local function pushTheme(window: RenderChildBase)
-        for i,v in pairs(styleoptions) do
+        for i,v in styleoptions do
             window:SetStyle(RenderStyleOption[i], v)
         end
 
-        for i,v in pairs(coloroptions) do
+        for i,v in coloroptions do
             window:SetColor(RenderColorOption[i], v[1], v[2])
         end
     end

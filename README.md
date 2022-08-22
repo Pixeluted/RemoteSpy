@@ -9,4 +9,4 @@ loadstring(syn.request({ Url = url }).Body)()
 
 # Credits
 * Made by GameGuy#5286
-* Some functions were "borrowed" and modified from Hydroxide (pseudocode related functions), these functions are labelled in the source code
+* Some functions were "borrowed" and modified + optimized from Hydroxide (pseudocode related functions), these functions are labelled in the source code

@@ -625,7 +625,7 @@ if not _G.mainWindow then
         button.Label = "Repeat Call"
         button.OnUpdated:Connect(function()
             if not pcall(spyFunctions[idxs[call.Type]].Function, self, unpack(call.Args)) then
-                pushError("Failed to get Calling Script")
+                pushError("Failed to Repeat Call")
             end
         end)
     end

@@ -7,7 +7,7 @@ loadstring(syn.request({ Url = url }).Body)()
 # Description
 * Custom made Remote Spy for Synapse V3 (try not to leak source to any non v3 users).
 
-# ToDo:
+# To Do:
 * Redo all functions copied from Hydroxide (most could use some major optimizations for this usecase
 * Implement RenderPopups once they get added properly
 * Clean up gui code once RenderPopups get added

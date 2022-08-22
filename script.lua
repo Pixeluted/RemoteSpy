@@ -226,7 +226,7 @@ if not _G.mainWindow then
 
     local types = {
         ["string"] = { Color3.fromHSV(29/360, 0.8, 1), function(obj)
-            return '"' .. obj .. '"'
+            return '"' .. obj:gsub('"', '\"') .. '"'
         end },
         ["number"] = { Color3.fromHSV(120/360, 0.8, 1), function(obj)
             return tostring(obj)
@@ -371,7 +371,7 @@ if not _G.mainWindow then
                 elseif primTyp == "table" then
                     varConstructor = tableToString(call, arg)
                 elseif primTyp == "string" then
-                    varConstructor = '"' .. arg .. '"'
+                    varConstructor = '"' .. arg:gsub('"', '\"') .. '"'
                 elseif primTyp == "function" then
                     varConstructor = 'nil -- "' .. tostring(arg) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
                 elseif primTyp == "thread" then

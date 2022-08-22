@@ -128,7 +128,7 @@ if not _G.mainWindow then
                 local success, result = pcall(toUnicode, data)
                 return (success and result) or toString(data)
             else
-                return ('"%s"'):format(data:gsub('"', '\\"'))
+                return ('"' .. data:gsub('"', '\"') .. '"')
             end
         elseif dataType == "table" then
             indents = indents or 1

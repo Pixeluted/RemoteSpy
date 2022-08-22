@@ -5,10 +5,10 @@ if not RenderWindow then
 end
 
 if not _G.mainWindow then
-    local red = Color3.new(1, 0, 0)
-    local green = Color3.new(0, 1, 0)
-    local black = Color3.new(0, 0, 0)
-    local white = Color3.new(1, 1, 1)
+    local red = Color3.fromRGB(255, 0, 0)
+    local green = Color3.fromRGB(0, 255, 0)
+    local white = Color3.fromRGB(255, 255, 255)
+    local black = Color3.fromRGB()
 
     local function pushError(message: string)
         syn.toast_notification({
@@ -65,10 +65,10 @@ if not _G.mainWindow then
         local codepoints = "utf8.char("
         
         for _,v in utf8.codes(str) do
-            codepoints = codepoints .. v .. ', '
+            codepoints ..= v .. ', '
         end
         
-        return codepoints:sub(1, -3) .. ')'
+        return string.sub(codepoints, 1, -3) .. ')'
     end
 
     
@@ -92,11 +92,11 @@ if not _G.mainWindow then
             elseif instance == client then
                 head = '.LocalPlayer' 
             else
-                local nonAlphaNum = name:gsub('[%w_]', '')
-                local noPunct = nonAlphaNum:gsub('[%s%p]', '')
+                local nonAlphaNum = string.gsub(name, '[%w_]', '')
+                local noPunct = string.gsub(nonAlphaNum, '[%s%p]', '')
                 
-                if tonumber(name:sub(1, 1)) or (#nonAlphaNum ~= 0 and #noPunct == 0) then
-                    head = '["' .. name:gsub('"', '\\"'):gsub('\\', '\\\\') .. '"]'
+                if tonumber(string.sub(name, 1, 1)) or (#nonAlphaNum ~= 0 and #noPunct == 0) then
+                    head = '["' .. string.gsub(string.gsub(name, '"', '\\"'), '\\', '\\\\') .. '"]'
                 elseif #nonAlphaNum ~= 0 and #noPunct > 0 then
                     head = '[' .. toUnicode(name) .. ']'
                 end
@@ -107,15 +107,7 @@ if not _G.mainWindow then
     end
 
     local function toString(value) -- COPIED FROM HYDROXIDE
-        local dataType = typeof(value)
-
-        if dataType == "userdata" or dataType == "table" then
-            return tostring(value) 
-        elseif type(value) == "userdata" then
-            return userdataValue(value)
-        else
-            return tostring(value)
-        end
+        return type(value) == "userdata" and userdataValue(value) or tostring(value)
     end
 
     local function tableToString(call, data, root, indents) -- COPIED FROM HYDROXIDE
@@ -124,11 +116,11 @@ if not _G.mainWindow then
         if dataType == "userdata" then
             return (typeof(data) == "Instance" and getInstancePath(data)) or userdataValue(data)
         elseif dataType == "string" then
-            if #(data:gsub('%w', ''):gsub('%s', ''):gsub('%p', '')) > 0 then
+            if #(string.gsub(string.gsub(string.gsub(data, '%w', ''), '%s', ''), '%p', '')) > 0 then
                 local success, result = pcall(toUnicode, data)
                 return (success and result) or toString(data)
             else
-                return ('"' .. data:gsub('"', '\\"') .. '"')
+                return ('"' .. string.gsub(data, '"', '\\"') .. '"')
             end
         elseif dataType == "table" then
             indents = indents or 1
@@ -136,33 +128,23 @@ if not _G.mainWindow then
 
             local head = '{\n'
             local elements = 0
-            local indent = ('\t'):rep(indents)
+            local indent = string.rep('\t', indents)
             
             for i,v in data do
-                if type(i) == "number" then -- table will either use all numbers, or mixed between non numbers
-                    if i ~= root and v ~= root then
-                        head = head .. ("%s%s,\n"):format(indent, tableToString(call, v, root, indents + 1))
-                    else
-                        head = head .. ("%sCYCLIC_PROTECTION,\n"):format(indent)
-                    end
-
-                    elements = elements + 1
+                if i == root or v == root then
+                    head ..= string.format("%sCYCLIC_PROTECTION,\n", indent)
                 else
-                    if i ~= root and v ~= root then
-                        head = head .. ("%s[%s] = %s,\n"):format(indent, tableToString(call, i, root, indents + 1), tableToString(call, v, root, indents + 1))
+                    if type(i) == "number" then -- table will either use all numbers, or mixed between non numbers
+                        head ..= string.format("%s%s,\n", indent, tableToString(call, v, root, indents + 1))
                     else
-                        head = head .. ("%sCYCLIC_PROTECTION,\n"):format(indent)
+                        head ..= string.format("%s[%s] = %s,\n", indent, tableToString(call, i, root, indents + 1), tableToString(call, v, root, indents + 1))
                     end
-
-                    elements = elements + 1
                 end
+                
+                elements += 1
             end
             
-            if elements > 0 then
-                return ("%s\n%s"):format(head:sub(1, -3), ('\t'):rep(indents - 1) .. '}')
-            else
-                return "{}"
-            end
+            return elements > 0 and string.format("%s\n%s", string.sub(head, 1, -3), string.rep('\t', indents - 1) .. '}') or "{}"
         elseif primTyp == "function" and (call.Type == "BindableEvent" or call.Type == "BindableFunction") then -- functions are only recieveable through bindables, not remotes
             varConstructor = 'nil -- "' .. tostring(arg) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
         elseif primTyp == "thread" and false then -- dont bother listing threads because they can never be sent
@@ -203,13 +185,13 @@ if not _G.mainWindow then
         elseif dataType == "DateTime" then
             return dataType .. ".now()"
         elseif dataType == "PathWaypoint" then
-            local split = tostring(data):split('}, ')
-            local vector = split[1]:gsub('{', "Vector3.new(")
+            local split = string.split(tostring(data), '}, ')
+            local vector = string.gsub(split[1], '{', "Vector3.new(")
             return dataType .. ".new(" .. vector .. "), " .. split[2] .. ')'
         elseif dataType == "Ray" or dataType == "Region3" then
-            local split = tostring(data):split('}, ')
-            local vprimary = split[1]:gsub('{', "Vector3.new(")
-            local vsecondary = split[2]:gsub('{', "Vector3.new("):gsub('}', ')')
+            local split = string.split(tostring(data), '}, ')
+            local vprimary = string.gsub(split[1], '{', "Vector3.new(")
+            local vsecondary = string.gsub(string.gsub(split[2], '{', "Vector3.new("), '}', ')')
             return dataType .. ".new(" .. vprimary .. "), " .. vsecondary .. ')'
         elseif dataType == "ColorSequence" or dataType == "NumberSequence" then 
             return dataType .. ".new(" .. tableToString(nil, data.Keypoints) .. ')'
@@ -226,7 +208,7 @@ if not _G.mainWindow then
 
     local types = {
         ["string"] = { Color3.fromHSV(29/360, 0.8, 1), function(obj)
-            return '"' .. obj:gsub('"', '\\"') .. '"'
+            return '"' .. string.gsub(obj, '"', '\\"') .. '"'
         end },
         ["number"] = { Color3.fromHSV(120/360, 0.8, 1), function(obj)
             return tostring(obj)
@@ -332,7 +314,7 @@ if not _G.mainWindow then
         local count = 0
         for _,v in tab do
             if v == target then
-                count +=1
+                count += 1
             end
         end
         return count
@@ -350,11 +332,13 @@ if not _G.mainWindow then
             for i = 1, #call.Args do
                 local arg = call.Args[i]
                 local primTyp = type(arg)
-                local typ = (typeof(arg):gsub("^%u", string.lower))
+                local typ = (string.gsub(typeof(arg), "^%u", string.lower))
+
                 if primTyp == "thread" or (primTyp == "function" and (call.Type == "RemoteEvent" or call.Type == "RemoteFunction")) then
                     typ = "nil" -- functions are only recieveable through bindables, not remotes
                     primTyp = "nil"
                 end -- dont bother listing threads because they can never be sent
+
                 local amt = getCountFromTable(argCalls, typ) + 1
                 table.insert(argCalls, typ)
                 table.insert(argCallCount, amt)
@@ -371,7 +355,7 @@ if not _G.mainWindow then
                 elseif primTyp == "table" then
                     varConstructor = tableToString(call, arg)
                 elseif primTyp == "string" then
-                    varConstructor = '"' .. arg:gsub('"', '\\"') .. '"'
+                    varConstructor = '"' .. string.gsub(arg, '"', '\\"') .. '"'
                 elseif primTyp == "function" then
                     varConstructor = 'nil -- "' .. tostring(arg) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
                 elseif primTyp == "thread" then
@@ -394,7 +378,7 @@ if not _G.mainWindow then
                 end
             end
 
-            return (pseudocode:sub(1, -3) .. ")") -- sub gets rid of the last ", "
+            return (string.sub(pseudocode, 1, -3) .. ")") -- sub gets rid of the last ", "
         end
     end
 
@@ -443,6 +427,17 @@ if not _G.mainWindow then
         filterLines(searchBar.Value)
     end
 
+    -- fireServer, invokeServer
+    for _,v in spyFunctions do
+        local method = v.Method
+        local deprecatedMethod = string.lower(string.sub(method, 1, 1)) .. string.sub(method, 2)
+
+        local newEntry = table.clone(v)
+        newEntry.Method = deprecatedMethod
+
+        table.insert(newEntry)
+    end
+    
     _G.mainWindow = RenderWindow.new("Remote Spy")
 
     local mainWindow = _G.mainWindow
@@ -489,9 +484,7 @@ if not _G.mainWindow then
         exitButtonFrame:SetColor(RenderColorOption.Button, black, 0)
         local exitButton = exitButtonFrame:Indent(width-39):Button()
         exitButton.Label = "\xef\x80\x8d"
-        exitButton.OnUpdated:Connect(function()
-            unloadRemote()
-        end)
+        exitButton.OnUpdated:Connect(unloadRemote)
 
         local remoteNameFrame = topBar:Dummy()
         remoteNameFrame:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
@@ -565,7 +558,7 @@ if not _G.mainWindow then
         clearLogsButton.OnUpdated:Connect(function()
             if currentSelectedRemote then
                 do -- updates front menu
-                    logs[currentSelectedRemote].Calls = {}
+                    table.clear(logs[currentSelectedRemote].Calls)
                     lines[currentSelectedRemote][3].Label = "0"
                     if not logs[currentSelectedRemote].Ignored then
                         lines[currentSelectedRemote][2].Visible = false
@@ -841,7 +834,7 @@ if not _G.mainWindow then
         clearLogsButton.Label = "Clear Logs"
 
         clearLogsButton.OnUpdated:Connect(function()
-            logs[self].Calls = {}
+            table.clear(logs[self].Calls)
             lines[self][3].Label = "0"
             if not logs[self].Ignored then
                 lines[self][2].Visible = false
@@ -1019,7 +1012,7 @@ if not _G.mainWindow then
         end
 
         return oldNamecall(self, ...)
-    end)
+    end, true)
 
     for i,v in spyFunctions do
 

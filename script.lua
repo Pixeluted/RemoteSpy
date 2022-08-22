@@ -10,6 +10,40 @@ if not _G.mainWindow then
     local white = Color3.fromRGB(255, 255, 255)
     local black = Color3.fromRGB()
 
+    local styleOptions = {
+        WindowRounding = 5,
+        WindowTitleAlign = Vector2.new(0.5, 0.5),
+        WindowBorderSize = 1,
+        FrameRounding = 3,
+        ButtonTextAlign = Vector2.new(0, 0.5),
+    }
+
+    local colorOptions = {
+        Border = {black, 1},
+        TitleBgActive = {Color3.fromRGB(35, 35, 38), 1},
+        TitleBg = {Color3.fromRGB(35, 35, 38), 1},
+        TitleBgCollapsed = {Color3.fromRGB(35, 35, 38), 0.8},
+        WindowBg = {Color3.fromRGB(50, 50, 53), 1},
+        Button = {Color3.fromRGB(75, 75, 78), 1},
+        ButtonHovered = {Color3.fromRGB(85, 85, 88), 1},
+        ButtonActive = {Color3.fromRGB(115, 115, 118), 1},
+        Text = {Color3.fromRGB(255, 255, 255), 1},
+        ResizeGrip = {black, 0},
+        ResizeGripActive = {black, 0},
+        ResizeGripHovered = {black, 0},
+        CheckMark = {white, 1},
+        FrameBg = {Color3.fromRGB(20, 20, 23), 1},
+        FrameBgHovered = {Color3.fromRGB(22, 22, 25), 1},
+        FrameBgActive = {Color3.fromRGB(30, 30, 35), 1},
+        Tab = {Color3.fromRGB(33, 36, 38), 1},
+        TabActive = {Color3.fromRGB(20, 20, 23), 1},
+        TabHovered = {Color3.fromRGB(119, 119, 119), 1},
+        TabUnfocused = {Color3.fromRGB(60, 60, 60), 1},
+        TabUnfocusedActive = {Color3.fromRGB(20, 20, 23), 1},
+        HeaderHovered = {Color3.fromRGB(55, 55, 55), 1},
+        HeaderActive = {Color3.fromRGB(75, 75, 75), 1},
+    }
+
     local function pushError(message: string)
         syn.toast_notification({
             Type = ToastType.Error,
@@ -20,35 +54,13 @@ if not _G.mainWindow then
     end
 
     local function pushTheme(window: RenderChildBase)
-        window:SetStyle(RenderStyleOption.WindowRounding, 5)
-        window:SetStyle(RenderStyleOption.WindowTitleAlign, Vector2.new(0.5, 0.5))
-        window:SetStyle(RenderStyleOption.WindowBorderSize, 1)
-        window:SetStyle(RenderStyleOption.FrameRounding, 3)
-        window:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
+        for i,v in styleOptions do
+            window:SetStyle(RenderStyleOption[i], v)
+        end
 
-        window:SetColor(RenderColorOption.Border, black, 1)
-        window:SetColor(RenderColorOption.TitleBgActive, Color3.fromRGB(35, 35, 38), 1)
-        window:SetColor(RenderColorOption.TitleBg, Color3.fromRGB(35, 35, 38), 1)
-        window:SetColor(RenderColorOption.TitleBgCollapsed, Color3.fromRGB(35, 35, 38), 0.8)
-        window:SetColor(RenderColorOption.WindowBg, Color3.fromRGB(50, 50, 53), 1)
-        window:SetColor(RenderColorOption.Button, Color3.fromRGB(75, 75, 78), 1)
-        window:SetColor(RenderColorOption.ButtonHovered, Color3.fromRGB(85, 85, 88), 1)
-        window:SetColor(RenderColorOption.ButtonActive, Color3.fromRGB(115, 115, 118), 1)
-        window:SetColor(RenderColorOption.Text, Color3.fromRGB(255, 255, 255), 1)
-        window:SetColor(RenderColorOption.ResizeGrip, black, 0)
-        window:SetColor(RenderColorOption.ResizeGripActive, black, 0)
-        window:SetColor(RenderColorOption.ResizeGripHovered, black, 0)
-        window:SetColor(RenderColorOption.CheckMark, white, 1)
-        window:SetColor(RenderColorOption.FrameBg, Color3.fromRGB(20, 20, 23), 1)
-        window:SetColor(RenderColorOption.FrameBgHovered, Color3.fromRGB(22, 22, 25), 1)
-        window:SetColor(RenderColorOption.FrameBgActive, Color3.fromRGB(30, 30, 35), 1)
-        window:SetColor(RenderColorOption.Tab, Color3.fromRGB(33, 36, 38), 1)
-        window:SetColor(RenderColorOption.TabActive, Color3.fromRGB(20, 20, 23), 1)
-        window:SetColor(RenderColorOption.TabHovered, Color3.fromRGB(119, 119, 119), 1)
-        window:SetColor(RenderColorOption.TabUnfocused, Color3.fromRGB(60, 60, 60), 1)
-        window:SetColor(RenderColorOption.TabUnfocusedActive, Color3.fromRGB(20, 20, 23), 1)
-        window:SetColor(RenderColorOption.HeaderHovered, Color3.fromRGB(55, 55, 55), 1)
-        window:SetColor(RenderColorOption.HeaderActive, Color3.fromRGB(75, 75, 75), 1)
+        for i,v in colorOptions do
+            window:SetColor(RenderColorOption[i], v[1], v[2])
+        end
     end
 
     local function addSpacer(window, amt: number)
@@ -425,17 +437,6 @@ if not _G.mainWindow then
             end
         end
         filterLines(searchBar.Value)
-    end
-
-    -- fireServer, invokeServer
-    for _,v in spyFunctions do
-        local method = v.Method
-        local deprecatedMethod = string.lower(string.sub(method, 1, 1)) .. string.sub(method, 2)
-
-        local newEntry = table.clone(v)
-        newEntry.Method = deprecatedMethod
-
-        table.insert(spyFunctions, newEntry)
     end
     
     _G.mainWindow = RenderWindow.new("Remote Spy")
@@ -1012,7 +1013,7 @@ if not _G.mainWindow then
         end
 
         return oldNamecall(self, ...)
-    end, true)
+    end)
 
     for i,v in spyFunctions do
 

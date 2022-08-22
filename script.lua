@@ -110,18 +110,9 @@ if not _G.mainWindow then
         local dataType = typeof(value)
 
         if dataType == "userdata" or dataType == "table" then
-            local mt = getmetatable(value)
-            local __tostring = mt and mt.__tostring
-
-            if not mt or (mt and not __tostring) then 
-                return tostring(value) 
-            end
-            return tostring(value):gsub((dataType == "userdata" and "userdata: ") or "table: ", '') 
+            return tostring(value) 
         elseif type(value) == "userdata" then
             return userdataValue(value)
-        elseif dataType == "function" then
-            local closureName = getInfo(value).name or ''
-            return (closureName == '' and "Unnamed function") or closureName
         else
             return tostring(value)
         end

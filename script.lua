@@ -106,7 +106,7 @@ if not _G.mainWindow then
         return getInstancePath(instance.Parent) .. head
     end
 
-    local function toString(value) -- COPIED FROM HYDROXIDE (vuln fix)
+    local function toString(value) -- COPIED FROM HYDROXIDE
         local dataType = typeof(value)
 
         if dataType == "userdata" or dataType == "table" then

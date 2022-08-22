@@ -291,7 +291,7 @@ if not _G.mainWindow then
         {
             Name = "RemoteEvent",
             Method = "FireServer",
-            DepreciatedMethod = "fireServer",
+            DeprecatedMethod = "fireServer",
             Enabled = true,
             Icon = "\xef\x83\xa7",
             Color = Color3.fromRGB(254, 254, 0),
@@ -300,7 +300,7 @@ if not _G.mainWindow then
         {
             Name = "RemoteFunction",
             Method = "InvokeServer",
-            DepreciatedMethod = "invokeServer",
+            DeprecatedMethod = "invokeServer",
             Enabled = true,
             Icon = "\xef\x81\xa4",
             Color = Color3.fromRGB(250, 152, 251),
@@ -309,7 +309,7 @@ if not _G.mainWindow then
         {
             Name = "BindableEvent",
             Method = "Fire",
-            DepreciatedMethod = "fire",
+            DeprecatedMethod = "fire",
             Enabled = false,
             Icon = "\xef\x83\xa7",
             Color = Color3.fromRGB(200, 100, 0),
@@ -1050,7 +1050,6 @@ if not _G.mainWindow then
         end
 
         oldfunc = hookfunction(Instance.new(v.Name)[v.Method], newcclosure(newfunction), InstanceFilter.new(1, v.Name))
-        oldfunc = hookfunction(Instance.new(v.Name)[v.DeprecatedMethod], newcclosure(newfunction), InstanceFilter.new(1, v.Name))
 
         spyFunctions[i].Function = newfunction
     end
@@ -1063,10 +1062,6 @@ else
     restorefunction(Instance.new("RemoteFunction").InvokeServer)
     restorefunction(Instance.new("BindableEvent").Fire)
     restorefunction(Instance.new("BindableFunction").Invoke)
-    restorefunction(Instance.new("RemoteEvent").fireServer)
-    restorefunction(Instance.new("RemoteFunction").invokeServer)
-    restorefunction(Instance.new("BindableEvent").fire)
-    restorefunction(Instance.new("BindableFunction").invoke)
     restorefunction(getrawmetatable(game).__namecall)
 end
 

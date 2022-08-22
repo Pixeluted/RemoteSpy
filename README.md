@@ -12,7 +12,7 @@ loadstring(syn.request({ Url = url }).Body)()
 * Implement RenderPopups once they get added properly
 * Clean up gui code once RenderPopups get added
 * Possibly implement outlines around gui objects, if possible, and when possible
-* Implement a condition system (arg guard of sorts), for blocking certain remote calls that were called with: x amount of args, type x arg in x index, etc.  (Basically just implement the Filter api into the RemoteSpy)
+* Implement a condition system (arg guard of sorts), for blocking certain remote calls that were called with: x amount of args, type(arg) == x at index y, etc.  (Basically just implement the Filter api into the RemoteSpy)
 
 # Credits
 * Made by GameGuy#5286

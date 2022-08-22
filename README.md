@@ -6,6 +6,7 @@ loadstring(syn.request({ Url = url }).Body)()
 
 # Description
 * Custom made Remote Spy for Synapse V3 (try not to leak source to any non v3 users).
+* Any and All bugs/detections/suggestions can be reported to me on discord at GameGuy#5286 <@515708480661749770>
 
 # To Do:
 * Redo all functions copied from Hydroxide (most could use some major optimizations for this usecase

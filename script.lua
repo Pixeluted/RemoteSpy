@@ -1004,47 +1004,60 @@ if not _G.mainWindow then
     comms.Event:Connect(updateLogs)
     local commsFunc = comms.Fire
 
+    local filters = {}
+    for _,v in spyFunctions do -- setup filters
+        table.insert(filters, AllFilter.new({ -- it HAS to have an instance and namecall
+            InstanceFilter.new(1, v.Name),
+            AnyFilter.new({ -- EITHER method or deprecated method
+                NamecallFilter.new(v.Method),
+                NamecallFilter.new(v.DeprecatedMethod)
+            })
+        }))
+    end
+
+    local function newHookMetamethod(toHook, mtmethod, hookFunction, filter) -- make hook
+        local oldFunction -- declar var
+
+        local func = getfilter(filter, function(...) -- didn't even know this function existed until engo#0320 posted an example of it
+            return oldFunction(...) -- pass all args
+        end, hookFunction) 
+
+        oldFunction = hookmetamethod(toHook, mtmethod, func) 
+        return oldFunction -- return the function so it can be called in my hook below
+    end
+
     local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    oldNamecall = newHookMetamethod(game, "__namecall", function(self, ...)
         if self == comms then return oldNamecall(self, ...) end
 
-        if typeof(self) == "Instance" then
-            local nmc = getnamecallmethod()
-            for _,v in spyFunctions do
-                if v.Name == self.ClassName and (v.Method == nmc or v.DeprecatedMethod == nmc) then
-
-                    task.defer(function(...)
-                        if not logs[self] then
-                            logs[self] = {
-                                Blocked = false,
-                                Ignored = false,
-                                Calls = {}
-                            }
-                        end
-
-                        if not logs[self].Ignored then
-                            local args = {...}
-                            if #args > 7995 or checkCyclic(args) then
-                                return
-                            end
-                            local data = {
-                                Type = v.Name,
-                                Script = getcallingscript(),
-                                Args = args,
-                                FromSynapse = checkcaller()
-                            }
-                            commsFunc(comms, self, data)
-                        end
-                    end, ...)
-                    
-                    if logs[self] and logs[self].Blocked then return end
-                    break
-                end
+        task.defer(function(...)
+            if not logs[self] then
+                logs[self] = {
+                    Blocked = false,
+                    Ignored = false,
+                    Calls = {}
+                }
             end
-        end
+
+            if not logs[self].Ignored then
+                local args = {...}
+                if #args > 7995 or checkCyclic(args) then
+                    return
+                end
+                local data = {
+                    Type = self.ClassName,
+                    Script = getcallingscript(),
+                    Args = args,
+                    FromSynapse = checkcaller()
+                }
+                commsFunc(comms, self, data)
+            end
+        end, ...)
+        
+        if logs[self] and logs[self].Blocked then return end
 
         return oldNamecall(self, ...)
-    end)
+    end, AnyFilter.new(filters)) -- no more need for checks in between!
 
     for i,v in spyFunctions do
 

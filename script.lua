@@ -685,8 +685,8 @@ if not _G.mainWindow then
 
         if #call.Args == 1 or #call.Args == 0 then
             childWindow.Size = Vector2.new(width-46, 24 + 24 + 24) -- 2 lines (top line = 24, arg line = 20) + 3x (8px) spacers  | -46 because 16 padding on each side, plus 14 wide scrollbar
-        elseif #call.Args < 10 then
-            childWindow.Size = Vector2.new(width-46, (#call.Args * 28) - 4 + 24 + 24) -- 3 lines (1 line = 24) + 3x (8px) spacers  | -46 because 16 padding on each side, plus 14 wide scrollbar
+        elseif totalArgCount < 10 then
+            childWindow.Size = Vector2.new(width-46, (totalArgCount * 28) - 4 + 24 + 24) -- 3 lines (1 line = 24) + 3x (8px) spacers  | -46 because 16 padding on each side, plus 14 wide scrollbar
         else -- 28 pixels per line (24 for arg, 4 for spacer), but -4 because no spacer at end, then +24 because button line, and +24 for top, bottom, and middle spacer
             childWindow.Size = Vector2.new(width-46, (9 * 28) - 4 + 24 + 24)
         end

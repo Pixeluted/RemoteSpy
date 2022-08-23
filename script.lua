@@ -1017,7 +1017,7 @@ if not _G.mainWindow then
 
                         if not logs[self].Ignored then
                             local args = {...}
-                            if checkCyclic(args) then
+                            if #args > 7995 or checkCyclic(args) then
                                 return
                             end
                             local data = {
@@ -1056,7 +1056,7 @@ if not _G.mainWindow then
 
                 if not logs[self].Ignored then
                     local args = {...}
-                    if checkCyclic(args) then
+                    if #args > 7995 or checkCyclic(args) then
                         return
                     end
 

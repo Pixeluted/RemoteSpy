@@ -60,15 +60,22 @@ if not _G.mainWindow then
 
         for _,v in newTable do
             if type(v) == "table" then
+                local oldmt = getrawmetatable(v)
                 setrawmetatable(v, safeMt) -- clearing Mt, but I don't need to set it back (hopefully)
                 if v == newTable or v == originalTable then
+                    setrawmetatable(v, oldmt)
                     return true
                 end
                 
                 if stack == 19997 then
-                    return "true" -- STACK OVERFLOW ATTEMPT
+                    setrawmetatable(v, oldmt)
+                    return true -- STACK OVERFLOW ATTEMPT
                 end
-                return checkCyclic(v, newTable, stack+1);
+
+                local retVal = checkCyclic(v, newTable, stack+1);
+                
+                setrawmetatable(v, oldmt)
+                return retVal
             end
         end
         return false

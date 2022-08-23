@@ -58,23 +58,18 @@ if not _G.mainWindow then
     local function checkCyclic(newTable: table, originalTable: table, stack: number) -- prevents lots of detection methods, automatically checks for stack overflows, cyclic tables, and strips metamethods silently (no more table.freeze or table.__metamethod)
         stack = stack or 1
 
-        for _,v in newTable do
+        for _,v in next, newTable do -- next because __iter is detected :(, also we don't want to replace metatables because of the risk of time delay before original metatable is replaced
             if type(v) == "table" then
-                local oldmt = getrawmetatable(v)
-                setrawmetatable(v, safeMt) -- clearing Mt, but I don't need to set it back (hopefully)
-                if v == newTable or v == originalTable then
-                    setrawmetatable(v, oldmt)
+                if rawequal(v, newTable) or rawequal(v, originalTable) then
                     return true
                 end
                 
                 if stack == 19997 then
-                    setrawmetatable(v, oldmt)
                     return true -- STACK OVERFLOW ATTEMPT
                 end
 
                 local retVal = checkCyclic(v, newTable, stack+1);
                 
-                setrawmetatable(v, oldmt)
                 return retVal
             end
         end

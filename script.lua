@@ -355,7 +355,7 @@ if not _G.mainWindow then
     end
 
     local function genPseudo(rem, call)
-        if #call.Args == 0 then
+        if #call.Args == 0 and call.NilCount == 0 then
             return "local remote = " .. getInstancePath(rem) .. "\n\nremote:" .. spyFunctions[idxs[call.Type]].Method .."()"
         else
             local argCalls = {}
@@ -408,6 +408,10 @@ if not _G.mainWindow then
 
                 pseudocode ..= (varPrefix .. (varConstructor .. "\n"))
             end
+
+            for i = 1, call.NilCount do
+                pseudocode ..= "local nil" .. tostring(i) .. " = nil -- HIDDEN NIL SENT BY THE GAME, THE GAME CAN TELL IF THIS IS NOT SENT, CONTACT GameGuy#5920 FOR MORE INFO\n"
+            end
             pseudocode ..= ("\nlocal remote = " .. getInstancePath(rem) .. "\n") .. ("remote:" .. spyFunctions[idxs[call.Type]].Method .. "(")
             
             for i,v in argCalls do
@@ -416,6 +420,10 @@ if not _G.mainWindow then
                 else
                     pseudocode ..= ( v .. argCallCount[i] .. ", " )
                 end
+            end
+
+            for i = 1, call.NilCount do
+                pseudocode ..= ("nil" .. tostring(i) .. ", ")
             end
 
             return (string.sub(pseudocode, 1, -3) .. ")") -- sub gets rid of the last ", "
@@ -647,8 +655,14 @@ if not _G.mainWindow then
         local button = window:Button()
         button.Label = "Repeat Call"
         button.OnUpdated:Connect(function()
-            if not pcall(spyFunctions[idxs[call.Type]].Function, self, unpack(call.Args)) then
-                pushError("Failed to Repeat Call")
+            if call.NilCount == 0 then
+                if not pcall(spyFunctions[idxs[call.Type]].Function, self, unpack(call.Args)) then
+                    pushError("Failed to Repeat Call")
+                end
+            else
+                if not pcall(loadstring(genPseudo(self, call))) then
+                    pushError("Failed to Repeat Call (Variant 2)")
+                end
             end
         end)
     end
@@ -662,6 +676,7 @@ if not _G.mainWindow then
     end
 
     local function makeRemoteViewerLog(window, call, remote)
+        local totalArgCount = #call.Args + call.NilCount
         local tempMain = window:Dummy()
         tempMain:SetColor(RenderColorOption.ChildBg, Color3.fromRGB(25, 25, 28), 1)
 
@@ -696,7 +711,7 @@ if not _G.mainWindow then
 
         addSpacer(childWindow, 8)
 
-        if #call.Args == 0 or #call.Args == 1 then
+        if totalArgCount == 0 or totalArgCount == 1 then
             local argFrame = childWindow:SameLine()
 
             local temp2 = argFrame:SameLine()
@@ -706,13 +721,16 @@ if not _G.mainWindow then
             temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
 
             local lineContents = temp2:Indent(8):Button()
-            if #call.Args == 0 then
+            if totalArgCount == 0 then
                 argFrame:SetColor(RenderColorOption.Text, Color3.fromRGB(156, 0, 0), 1)
                 lineContents.Label = spaces2 .. "nil"
-            else
+            elseif #call.Args == 1 then
                 local text, color = getArgString(call.Args[1], call.Type)
                 lineContents.Label = spaces2 .. text
                 argFrame:SetColor(RenderColorOption.Text, color, 1)
+            else
+                lineContents.Label = spaces2 .. "HIDDEN NIL"
+                argFrame:SetColor(RenderColorOption.Text, Color3.fromHSV(258/360, 0.8, 1), 1)
             end
             lineContents.Size = Vector2.new(width-24-38, 24) -- 24 = left padding, 38 = right padding, and no scrollbar
 
@@ -743,7 +761,7 @@ if not _G.mainWindow then
                 local text, color = getArgString(x, call.Type)
                 lineContents.Label = spaces2 .. text
                 argFrame:SetColor(RenderColorOption.Text, color, 1)
-                if #call.Args < 10 then
+                if totalArgCount < 10 then
                     lineContents.Size = Vector2.new(width-24-38, 24) -- 24 = left padding + indent, 38 = right padding (no scrollbar) 
                 else
                     lineContents.Size = Vector2.new(width-24-38-14, 24) -- 14 = scrollbar width, plus read above
@@ -758,6 +776,37 @@ if not _G.mainWindow then
 
                 local lineNum = temp:Indent(1):Button()
                 lineNum.Label = tostring(i)
+                lineNum.Size = Vector2.new(32, 24)
+
+                addSpacer(childWindow, 4)
+            end
+            for i = 1, call.NilCount do
+                local argFrame = childWindow:SameLine()
+
+                local temp2 = argFrame:SameLine()
+                temp2:SetColor(RenderColorOption.ButtonActive, colorOptions.FrameBg[1], 1)
+                temp2:SetColor(RenderColorOption.ButtonHovered, colorOptions.FrameBg[1], 1)
+                temp2:SetColor(RenderColorOption.Button, colorOptions.FrameBg[1], 1)
+                temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
+
+                local lineContents = temp2:Indent(8):Button()
+                lineContents.Label = spaces2 .. "HIDDEN NIL"
+                argFrame:SetColor(RenderColorOption.Text, Color3.fromHSV(258/360, 0.8, 1), 1)
+                if totalArgCount < 10 then
+                    lineContents.Size = Vector2.new(width-24-38, 24) -- 24 = left padding + indent, 38 = right padding (no scrollbar) 
+                else
+                    lineContents.Size = Vector2.new(width-24-38-14, 24) -- 14 = scrollbar width, plus read above
+                end
+
+                local temp = argFrame:SameLine()
+                argFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
+                argFrame:SetColor(RenderColorOption.ButtonHovered, black, 0)
+                argFrame:SetColor(RenderColorOption.Button, black, 0)
+                temp:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(1, 0.5))
+                temp:SetColor(RenderColorOption.Text, Color3.fromHSV(179/360, 0.8, 1), 1)
+
+                local lineNum = temp:Indent(1):Button()
+                lineNum.Label = tostring(i + #call.Args)
                 lineNum.Size = Vector2.new(32, 24)
 
                 addSpacer(childWindow, 4)
@@ -1041,6 +1090,7 @@ if not _G.mainWindow then
 
             if not logs[self].Ignored then
                 local args = {...}
+                local argCount = select("#", ...)
                 if #args > 7995 or checkCyclic(args) then
                     return
                 end
@@ -1048,6 +1098,7 @@ if not _G.mainWindow then
                     Type = self.ClassName,
                     Script = getcallingscript(),
                     Args = args,
+                    NilCount = (argCount - #args),
                     FromSynapse = checkcaller()
                 }
                 commsFunc(comms, self, data)
@@ -1076,7 +1127,8 @@ if not _G.mainWindow then
 
                 if not logs[self].Ignored then
                     local args = {...}
-                    if #args > 7995 or checkCyclic(args) then
+                    local argCount = select("#", ...)
+                    if argCount > 7995 or checkCyclic(args) then
                         return
                     end
 
@@ -1084,6 +1136,7 @@ if not _G.mainWindow then
                         Type = v.Name,
                         Script = getcallingscript(),
                         Args = args,
+                        NilCount = (argCount - #args), -- vuln patch
                         FromSynapse = checkcaller()
                     }
                     commsFunc(comms, self, data)

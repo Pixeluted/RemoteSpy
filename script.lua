@@ -27,7 +27,7 @@ if not _G.mainWindow then
         Button = {Color3.fromRGB(75, 75, 78), 1},
         ButtonHovered = {Color3.fromRGB(85, 85, 88), 1},
         ButtonActive = {Color3.fromRGB(115, 115, 118), 1},
-        Text = {Color3.fromRGB(255, 255, 255), 1},
+        Text = {white, 1},
         ResizeGrip = {black, 0},
         ResizeGripActive = {black, 0},
         ResizeGripHovered = {black, 0},
@@ -616,7 +616,7 @@ if not _G.mainWindow then
     local remoteArgFrame = remotePage:SameLine()
 
     do -- arg frame code
-        remoteArgFrame:SetColor(RenderColorOption.ChildBg, Color3.fromRGB(35, 35, 38), 1)
+        remoteArgFrame:SetColor(RenderColorOption.ChildBg, colorOptions.ChildBg, 1)
         remoteArgFrame:SetStyle(RenderStyleOption.ChildRounding, 5)
         local mainWindow = remoteArgFrame:Child()
         remotePageObjects.MainWindow = mainWindow
@@ -693,9 +693,9 @@ if not _G.mainWindow then
             local argFrame = childWindow:SameLine()
 
             local temp2 = argFrame:SameLine()
-            temp2:SetColor(RenderColorOption.ButtonActive, Color3.fromRGB(20, 20, 23), 1)
-            temp2:SetColor(RenderColorOption.ButtonHovered, Color3.fromRGB(20, 20, 23), 1)
-            temp2:SetColor(RenderColorOption.Button, Color3.fromRGB(20, 20, 23), 1)
+            temp2:SetColor(RenderColorOption.ButtonActive, colorOptions.FrameBg, 1)
+            temp2:SetColor(RenderColorOption.ButtonHovered, colorOptions.FrameBg, 1)
+            temp2:SetColor(RenderColorOption.Button, colorOptions.FrameBg, 1)
             temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
 
             local lineContents = temp2:Indent(8):Button()
@@ -727,9 +727,9 @@ if not _G.mainWindow then
                 local argFrame = childWindow:SameLine()
 
                 local temp2 = argFrame:SameLine()
-                temp2:SetColor(RenderColorOption.ButtonActive, Color3.fromRGB(20, 20, 23), 1)
-                temp2:SetColor(RenderColorOption.ButtonHovered, Color3.fromRGB(20, 20, 23), 1)
-                temp2:SetColor(RenderColorOption.Button, Color3.fromRGB(20, 20, 23), 1)
+                temp2:SetColor(RenderColorOption.ButtonActive, colorOptions.FrameBg, 1)
+                temp2:SetColor(RenderColorOption.ButtonHovered, colorOptions.FrameBg, 1)
+                temp2:SetColor(RenderColorOption.Button, colorOptions.FrameBg, 1)
                 temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
 
                 local lineContents = temp2:Indent(8):Button()
@@ -824,7 +824,7 @@ if not _G.mainWindow then
     frontPage:Separator()
 
     
-    frontPage:SetColor(RenderColorOption.ChildBg, Color3.fromRGB(35, 35, 38), 1)
+    frontPage:SetColor(RenderColorOption.ChildBg, colorOptions.ChildBg, 1)
     frontPage:SetStyle(RenderStyleOption.ChildRounding, 5)
 
     local childWindow = frontPage:Child()

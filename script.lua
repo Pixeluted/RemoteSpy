@@ -150,48 +150,6 @@ if not _G.mainWindow then
         return type(value) == "userdata" and userdataValue(value) or tostring(value)
     end
 
-    local function tableToString(call, data, root, indents) -- COPIED FROM HYDROXIDE
-        local dataType = type(data)
-
-        if dataType == "userdata" then
-            return (typeof(data) == "Instance" and getInstancePath(data)) or userdataValue(data)
-        elseif dataType == "string" then
-            if #(string.gsub(string.gsub(string.gsub(data, '%w', ''), '%s', ''), '%p', '')) > 0 then
-                local success, result = pcall(toUnicode, data)
-                return (success and result) or toString(data)
-            else
-                return ('"' .. string.gsub(data, '"', '\\"') .. '"')
-            end
-        elseif dataType == "table" then
-            indents = indents or 1
-            root = root or data
-
-            local head = '{\n'
-            local elements = 0
-            local indent = string.rep('\t', indents)
-            -- moved checkCyclic check to hook
-            for i,v in data do
-                if type(i) == "number" then -- table will either use all numbers, or mixed between non numbers
-                    head ..= string.format("%s%s,\n", indent, tableToString(call, v, root, indents + 1))
-                else
-                    head ..= string.format("%s[%s] = %s,\n", indent, tableToString(call, i, root, indents + 1), tableToString(call, v, root, indents + 1))
-                end
-                
-                elements += 1
-            end
-            
-            return elements > 0 and string.format("%s\n%s", string.sub(head, 1, -3), string.rep('\t', indents - 1) .. '}') or "{}"
-        elseif primTyp == "function" and (call.Type == "BindableEvent" or call.Type == "BindableFunction") then -- functions are only recieveable through bindables, not remotes
-            varConstructor = 'nil -- "' .. tostring(arg) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
-        elseif primTyp == "thread" and false then -- dont bother listing threads because they can never be sent
-            varConstructor = 'nil -- "' .. tostring(arg) .. '"  THREADS CANT BE MADE INTO PSEUDOCODE' -- just in case
-        elseif primTyp == "thread" or primTyp == "function" then
-            varConstructor = "nil"
-        else
-            return tostring(data)
-        end
-    end
-
     local function userdataValue(data) -- COPIED FROM HYDROXIDE
         local dataType = typeof(data)
 
@@ -241,6 +199,47 @@ if not _G.mainWindow then
         return tostring(data)
     end
 
+    local function tableToString(call, data, root, indents) -- COPIED FROM HYDROXIDE
+        local dataType = type(data)
+
+        if dataType == "userdata" then
+            return (typeof(data) == "Instance" and getInstancePath(data)) or userdataValue(data)
+        elseif dataType == "string" then
+            if #(string.gsub(string.gsub(string.gsub(data, '%w', ''), '%s', ''), '%p', '')) > 0 then
+                local success, result = pcall(toUnicode, data)
+                return (success and result) or toString(data)
+            else
+                return ('"' .. string.gsub(data, '"', '\\"') .. '"')
+            end
+        elseif dataType == "table" then
+            indents = indents or 1
+            root = root or data
+
+            local head = '{\n'
+            local elements = 0
+            local indent = string.rep('\t', indents)
+            -- moved checkCyclic check to hook
+            for i,v in data do
+                if type(i) == "number" then -- table will either use all numbers, or mixed between non numbers
+                    head ..= string.format("%s%s,\n", indent, tableToString(call, v, root, indents + 1))
+                else
+                    head ..= string.format("%s[%s] = %s,\n", indent, tableToString(call, i, root, indents + 1), tableToString(call, v, root, indents + 1))
+                end
+                
+                elements += 1
+            end
+            
+            return elements > 0 and string.format("%s\n%s", string.sub(head, 1, -3), string.rep('\t', indents - 1) .. '}') or "{}"
+        elseif primTyp == "function" and (call.Type == "BindableEvent" or call.Type == "BindableFunction") then -- functions are only recieveable through bindables, not remotes
+            varConstructor = 'nil -- "' .. tostring(arg) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
+        elseif primTyp == "thread" and false then -- dont bother listing threads because they can never be sent
+            varConstructor = 'nil -- "' .. tostring(arg) .. '"  THREADS CANT BE MADE INTO PSEUDOCODE' -- just in case
+        elseif primTyp == "thread" or primTyp == "function" then
+            varConstructor = "nil"
+        else
+            return tostring(data)
+        end
+    end
 
     local types = {
         ["string"] = { Color3.fromHSV(29/360, 0.8, 1), function(obj)

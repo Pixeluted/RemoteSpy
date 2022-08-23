@@ -372,7 +372,8 @@ if not _G.mainWindow then
             for i = 1, #call.Args do
                 local arg = call.Args[i]
                 local primTyp = type(arg)
-                local typ = (string.gsub(typeof(arg), "^%u", string.lower))
+                local tempTyp = typeof(arg)
+                local typ = (string.gsub(tempTyp, "^%u", string.lower))
 
                 if primTyp == "thread" or (primTyp == "function" and (call.Type == "RemoteEvent" or call.Type == "RemoteFunction")) then
                     typ = "nil" -- functions are only recieveable through bindables, not remotes
@@ -387,7 +388,12 @@ if not _G.mainWindow then
                     continue
                 end
 
-                local varPrefix = "local " .. typ .. tostring(amt) .. " = "
+                local varPrefix = ""
+                if primTyp ~= "function" then
+                    varPrefix = "local " .. typ .. tostring(amt) .. ": ".. tempTyp .." = "
+                else
+                    varPrefix = "local " .. typ .. tostring(amt) .." = "
+                end
                 local varConstructor = ""
 
                 if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
@@ -1005,25 +1011,25 @@ if not _G.mainWindow then
     local commsFunc = comms.Fire
 
     local filters = {}
-    for _,v in spyFunctions do -- setup filters
-        table.insert(filters, AllFilter.new({ -- it HAS to have an instance and namecall
+    for _,v in spyFunctions do
+        table.insert(filters, AllFilter.new({
             InstanceFilter.new(1, v.Name),
-            AnyFilter.new({ -- EITHER method or deprecated method
+            AnyFilter.new({
                 NamecallFilter.new(v.Method),
                 NamecallFilter.new(v.DeprecatedMethod)
             })
         }))
     end
 
-    local function newHookMetamethod(toHook, mtmethod, hookFunction, filter) -- make hook
-        local oldFunction -- declar var
+    local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
+        local oldFunction
 
-        local func = getfilter(filter, function(...) -- didn't even know this function existed until engo#0320 posted an example of it
-            return oldFunction(...) -- pass all args
-        end, hookFunction) 
+        local func = getfilter(filter, function(...) 
+            return oldFunction(...)
+        end, hookFunction)
 
-        oldFunction = hookmetamethod(toHook, mtmethod, func) 
-        return oldFunction -- return the function so it can be called in my hook below
+        oldFunction = hookmetamethod(toHook, mtmethod, func)
+        return oldFunction
     end
 
     local oldNamecall
@@ -1057,7 +1063,7 @@ if not _G.mainWindow then
         if logs[self] and logs[self].Blocked then return end
 
         return oldNamecall(self, ...)
-    end, AnyFilter.new(filters)) -- no more need for checks in between!
+    end, AnyFilter.new(filters))
 
     for i,v in spyFunctions do
 

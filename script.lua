@@ -495,7 +495,6 @@ if not _G.mainWindow then
         remotePage.Visible = false
         currentSelectedRemote = nil
         remotePageObjects.MainWindow:Clear()
-        addSpacer(remotePageObjects.MainWindow, 8)
     end
 
     local topBar = remotePage:SameLine()
@@ -777,12 +776,8 @@ if not _G.mainWindow then
         mainWindow:SetStyle(RenderStyleOption.ItemSpacing, Vector2.new(4, 0))
         addSpacer(mainWindow, 8)
 
-        local log = logs[self]       
-
-        if not log.Ignored then
-            for _,v in log.Calls do
-                makeRemoteViewerLog(mainWindow, v, self)
-            end
+        for _,v in logs[self].Calls do
+            makeRemoteViewerLog(mainWindow, v, self)
         end
     end
 

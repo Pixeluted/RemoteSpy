@@ -1,4 +1,5 @@
 ## Script
+If you don't see it after executing, open your internal ui.
 ```lua
 local url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/script.lua"
 loadstring(syn.request({ Url = url }).Body)()

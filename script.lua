@@ -52,6 +52,27 @@ if not _G.mainWindow then
             Content = message
         })
     end
+
+    local safeMt = getrawmetatable({})
+
+    local function checkCyclic(newTable: table, originalTable: table, stack: number) -- prevents lots of detection methods, automatically checks for stack overflows, cyclic tables, and strips metamethods silently (no more table.freeze or table.__metamethod)
+        stack = stack or 1
+
+        for _,v in newTable do
+            if type(v) == "table" then
+                setrawmetatable(v, safeMt) -- clearing Mt, but I don't need to set it back (hopefully)
+                if v == newTable or v == originalTable then
+                    return true
+                end
+                
+                if stack == 19997 then
+                    return "true" -- STACK OVERFLOW ATTEMPT
+                end
+                return checkCyclic(v, newTable, stack+1);
+            end
+        end
+        return false
+    end
     
     local function pushTheme(window: RenderChildBase)
         for i,v in styleOptions do
@@ -141,16 +162,12 @@ if not _G.mainWindow then
             local head = '{\n'
             local elements = 0
             local indent = string.rep('\t', indents)
-            
+            -- moved checkCyclic check to hook
             for i,v in data do
-                if i == root or v == root then
-                    head ..= string.format("%sCYCLIC_PROTECTION,\n", indent)
+                if type(i) == "number" then -- table will either use all numbers, or mixed between non numbers
+                    head ..= string.format("%s%s,\n", indent, tableToString(call, v, root, indents + 1))
                 else
-                    if type(i) == "number" then -- table will either use all numbers, or mixed between non numbers
-                        head ..= string.format("%s%s,\n", indent, tableToString(call, v, root, indents + 1))
-                    else
-                        head ..= string.format("%s[%s] = %s,\n", indent, tableToString(call, i, root, indents + 1), tableToString(call, v, root, indents + 1))
-                    end
+                    head ..= string.format("%s[%s] = %s,\n", indent, tableToString(call, i, root, indents + 1), tableToString(call, v, root, indents + 1))
                 end
                 
                 elements += 1
@@ -1004,10 +1021,14 @@ if not _G.mainWindow then
                         end
 
                         if not logs[self].Ignored then
+                            local args = {...}
+                            if checkCyclic(args) then
+                                return
+                            end
                             local data = {
                                 Type = v.Name,
                                 Script = getcallingscript(),
-                                Args = {...},
+                                Args = args,
                                 FromSynapse = checkcaller()
                             }
                             commsFunc(comms, self, data)
@@ -1039,10 +1060,15 @@ if not _G.mainWindow then
                 end
 
                 if not logs[self].Ignored then
+                    local args = {...}
+                    if checkCyclic(args) then
+                        return
+                    end
+
                     local data = {
                         Type = v.Name,
                         Script = getcallingscript(),
-                        Args = {...},
+                        Args = args,
                         FromSynapse = checkcaller()
                     }
                     commsFunc(comms, self, data)

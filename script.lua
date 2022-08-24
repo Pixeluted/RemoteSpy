@@ -5,8 +5,6 @@ if not RenderWindow then
 end
 
 if not _G.mainWindow then
-    local httpService = game:GetService("HttpService")
-    
     local red = Color3.fromRGB(255, 0, 0)
     local green = Color3.fromRGB(0, 255, 0)
     local white = Color3.fromRGB(255, 255, 255)
@@ -98,8 +96,13 @@ if not _G.mainWindow then
         return bufferMain
     end
 
-    local function purifyString(str: string) -- COPIED FROM HYDROXIDE
-        return '"' .. string.gsub(httpService:UrlEncode(str), "%%", "\\x") .. '"' -- unicode fix, credit to waa#7294
+    local function purifyString(str: string, quotes: boolean) -- COPIED FROM HYDROXIDE
+        str = string.gsub(str, "\\", "\\\\")
+        if quotes then
+            return '"' .. string.gsub(game:GetService("HttpService"):UrlEncode(str), "%%", "\\x") .. '"'
+        else
+            return string.gsub(game:GetService("HttpService"):UrlEncode(str), "%%", "\\x")
+        end
     end
     
     local function getInstancePath(instance) -- COPIED FROM HYDROXIDE
@@ -126,9 +129,9 @@ if not _G.mainWindow then
                 local noPunct = string.gsub(nonAlphaNum, '[%s%p]', '')
                 
                 if tonumber(string.sub(name, 1, 1)) or (#nonAlphaNum ~= 0 and #noPunct == 0) then
-                    head = '["' .. string.gsub(string.gsub(name, '"', '\\"'), '\\', '\\\\') .. '"]'
+                    head = '[' .. purifyString(name, true) .. ']'
                 elseif #nonAlphaNum ~= 0 and #noPunct > 0 then
-                    head = '[' .. purifyString(name) .. ']'
+                    head = '[' .. purifyString(name, true) .. ']'
                 end
             end
         end
@@ -196,7 +199,7 @@ if not _G.mainWindow then
             return (typeof(data) == "Instance" and getInstancePath(data)) or userdataValue(data)
         elseif dataType == "string" then
             if #(string.gsub(string.gsub(string.gsub(data, '%w', ''), '%s', ''), '%p', '')) > 0 then
-                local success, result = pcall(purifyString, data)
+                local success, result = pcall(purifyString, data, false)
                 return (success and result) or toString(data)
             else
                 return ('"' .. string.gsub(data, '"', '\\"') .. '"')
@@ -233,7 +236,7 @@ if not _G.mainWindow then
 
     local types = {
         ["string"] = { Color3.fromHSV(29/360, 0.8, 1), function(obj)
-            return '"' .. string.gsub(obj, '"', '\\"') .. '"'
+            return purifyString(obj, true)
         end },
         ["number"] = { Color3.fromHSV(120/360, 0.8, 1), function(obj)
             return tostring(obj)
@@ -390,7 +393,7 @@ if not _G.mainWindow then
                 elseif primTyp == "table" then
                     varConstructor = tableToString(call, arg)
                 elseif primTyp == "string" then
-                    varConstructor = purifyString(arg)
+                    varConstructor = purifyString(arg, true)
                 elseif primTyp == "function" then
                     varConstructor = 'nil -- "' .. tostring(arg) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
                 elseif primTyp == "thread" then
@@ -815,7 +818,7 @@ if not _G.mainWindow then
         frontPage.Visible = false
         remotePage.Visible = true
         currentSelectedRemote = self
-        remotePageObjects.Name.Label = self.Name
+        remotePageObjects.Name.Label = purifyString(self.Name)
         remotePageObjects.Icon.Label = funcInfo.Icon
         remotePageObjects.IconFrame:SetColor(RenderColorOption.Text, funcInfo.Color, 1)
         remotePageObjects.IgnoreButton.Label = (logs[self].Ignored and "Unignore") or "Ignore"
@@ -871,6 +874,21 @@ if not _G.mainWindow then
             updateLines(v.Name, enabled)
         end)
     end
+
+    -- below the above loop so that it gets placed on the bottom row of options
+    local clearAllLogsFrame = sameLine:Indent(width-108) -- 100 because button is 92 wide, plus 8 px padding on right edge, plus 8px because left edge is over intended by 8
+    local clearAllLogsButton = clearAllLogsFrame:Button()
+    clearAllLogsButton.Label = "Clear All Logs"
+    clearAllLogsButton.OnUpdated:Connect(function()
+        for i,v in logs do
+            table.clear(v.Calls)
+            lines[i][3].Label = "0"
+            if not logs[self].Ignored then -- im keeping the ignored remotes shown.  Either I clear all remotes and unignore any ignored ones, or I clear all remotes except ignoted ones.
+                lines[i][2].Visible = false -- any remotes cleared when ignored wont show any new logs, and therefore will obviously be later untraceable
+                lines[i][4].Visible = false
+            end
+        end
+    end)
 
     frontPage:Separator()
 
@@ -983,33 +1001,32 @@ if not _G.mainWindow then
         line[1] = functionInfo.Name
         line[2] = temp:Child()
         sameButtonLine = line[2]
-        sameButtonLine.Size = Vector2.new(width-32, 32) -- minus 32 because 4x 8px spacers
+        sameButtonLine.Size = Vector2.new(width-32-14, 32) -- minus 32 because 4x 8px spacers, minus 14 because scrollbar
         addSpacer(sameButtonLine, 4)
         sameButtonLine = sameButtonLine:SameLine()
 
         local remoteButton = sameButtonLine:Indent(6):Selectable()
-        remoteButton.Label = spaces..self.Name
-        remoteButton.Size = Vector2.new(width-327-4, 24)
+        remoteButton.Label = spaces .. purifyString(self.Name, false) 
+        remoteButton.Size = Vector2.new(width-327-4-14, 24)
         remoteButton.OnUpdated:Connect(function()
             loadRemote(self, data)
         end)
 
-        local spoofLine = sameButtonLine
-        addSpacer(spoofLine, 3)
+        addSpacer(sameButtonLine, 3)
 
-        local cloneLine = spoofLine:SameLine():Indent(6)
+        local cloneLine = sameButtonLine:SameLine():Indent(6)
         cloneLine:SetColor(RenderColorOption.Text, functionInfo.Color, 1)
         
         cloneLine:Label(functionInfo.Icon)
         
-        local cloneLine2 = spoofLine:SameLine()
+        local cloneLine2 = sameButtonLine:SameLine()
         cloneLine2:SetColor(RenderColorOption.Text, Color3.fromHSV(179/360, 0.8, 1), 1)
 
         local callAmt = #logs[self].Calls
         local callStr = (callAmt < 1000 and tostring(callAmt)) or "999+"
         line[3] = cloneLine2:Indent(27):Label(callStr)
 
-        local ind = sameButtonLine:Indent(width-319)
+        local ind = sameButtonLine:Indent(width-333)
         
         makeCopyPathButton(ind, self)
         makeClearLogsButton(sameButtonLine, self)

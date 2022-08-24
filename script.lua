@@ -213,13 +213,13 @@ if not _G.mainWindow then
             local indent = string.rep('\t', indents)
             -- moved checkCyclic check to hook
             for i,v in data do
-                if type(i) == "number" then -- table will either use all numbers, or mixed between non numbers
+                elements += 1
+
+                if type(i) == "number" and elements == i then -- table will either use all numbers, or mixed between non numbers
                     head ..= string.format("%s%s,\n", indent, tableToString(call, v, root, indents + 1))
                 else
                     head ..= string.format("%s[%s] = %s,\n", indent, tableToString(call, i, root, indents + 1), tableToString(call, v, root, indents + 1))
                 end
-                
-                elements += 1
             end
             
             return elements > 0 and string.format("%s\n%s", string.sub(head, 1, -3), string.rep('\t', indents - 1) .. '}') or "{}"

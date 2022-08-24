@@ -99,8 +99,12 @@ if not _G.mainWindow then
     local function toUnicode(str: string) -- COPIED FROM HYDROXIDE
         local codepoints = "utf8.char("
         
-        for _,v in utf8.codes(str) do
-            codepoints ..= v .. ', '
+        if not pcall(function()
+            for _,v in utf8.codes(str) do
+                codepoints ..= v .. ', '
+            end
+        end) then
+            return '"UNICODE ERROR - FIXED SOON"'
         end
         
         return string.sub(codepoints, 1, -3) .. ')'

@@ -5,6 +5,8 @@ if not RenderWindow then
 end
 
 if not _G.mainWindow then
+    local httpService = game:GetService("HttpService")
+    
     local red = Color3.fromRGB(255, 0, 0)
     local green = Color3.fromRGB(0, 255, 0)
     local white = Color3.fromRGB(255, 255, 255)
@@ -96,20 +98,9 @@ if not _G.mainWindow then
         return bufferMain
     end
 
-    local function toUnicode(str: string) -- COPIED FROM HYDROXIDE
-        local codepoints = "utf8.char("
-        
-        if not pcall(function()
-            for _,v in utf8.codes(str) do
-                codepoints ..= v .. ', '
-            end
-        end) then
-            return '"UNICODE ERROR - FIXED SOON"'
-        end
-        
-        return string.sub(codepoints, 1, -3) .. ')'
+    local function purifyString(str: string) -- COPIED FROM HYDROXIDE
+        return '"' .. string.gsub(httpService:UrlEncode(str), "%%", "\\x") .. '"' -- unicode fix, credit to waa#7294
     end
-
     
     local function getInstancePath(instance) -- COPIED FROM HYDROXIDE
         local name = instance.Name
@@ -137,7 +128,7 @@ if not _G.mainWindow then
                 if tonumber(string.sub(name, 1, 1)) or (#nonAlphaNum ~= 0 and #noPunct == 0) then
                     head = '["' .. string.gsub(string.gsub(name, '"', '\\"'), '\\', '\\\\') .. '"]'
                 elseif #nonAlphaNum ~= 0 and #noPunct > 0 then
-                    head = '[' .. toUnicode(name) .. ']'
+                    head = '[' .. purifyString(name) .. ']'
                 end
             end
         end
@@ -205,7 +196,7 @@ if not _G.mainWindow then
             return (typeof(data) == "Instance" and getInstancePath(data)) or userdataValue(data)
         elseif dataType == "string" then
             if #(string.gsub(string.gsub(string.gsub(data, '%w', ''), '%s', ''), '%p', '')) > 0 then
-                local success, result = pcall(toUnicode, data)
+                local success, result = pcall(purifyString, data)
                 return (success and result) or toString(data)
             else
                 return ('"' .. string.gsub(data, '"', '\\"') .. '"')
@@ -399,7 +390,7 @@ if not _G.mainWindow then
                 elseif primTyp == "table" then
                     varConstructor = tableToString(call, arg)
                 elseif primTyp == "string" then
-                    varConstructor = '"' .. string.gsub(arg, '"', '\\"') .. '"'
+                    varConstructor = purifyString(arg)
                 elseif primTyp == "function" then
                     varConstructor = 'nil -- "' .. tostring(arg) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
                 elseif primTyp == "thread" then

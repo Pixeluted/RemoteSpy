@@ -882,10 +882,12 @@ if not _G.mainWindow then
     clearAllLogsButton.OnUpdated:Connect(function()
         for i,v in logs do
             table.clear(v.Calls)
-            lines[i][3].Label = "0"
-            if not logs[self].Ignored then -- im keeping the ignored remotes shown.  Either I clear all remotes and unignore any ignored ones, or I clear all remotes except ignoted ones.
-                lines[i][2].Visible = false -- any remotes cleared when ignored wont show any new logs, and therefore will obviously be later untraceable
-                lines[i][4].Visible = false
+            if lines[i] then
+                lines[i][3].Label = "0"
+                if not v.Ignored then -- im keeping the ignored remotes shown.  Either I clear all remotes and unignore any ignored ones, or I clear all remotes except ignoted ones.
+                    lines[i][2].Visible = false -- any remotes cleared when ignored wont show any new logs, and therefore will obviously be later untraceable
+                    lines[i][4].Visible = false
+                end
             end
         end
     end)

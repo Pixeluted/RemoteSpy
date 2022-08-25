@@ -11,7 +11,7 @@ loadstring(syn.request({ Url = url }).Body)()
 * By executing the script a second time, you will clear all traces of it ever being there (GCs the ui, and restores all function hooks), but please wait until the ui disappears before executing it again, as it will throw an error otherwise.
 
 # To Do:
-* Redo all functions copied from Hydroxide (most could use some major optimizations for this usecase
+* Redo all functions copied from Hydroxide (most could use some major optimizations for this usecase)
 * Implement RenderPopups once they get added properly
 * Clean up gui code once RenderPopups get added
 * Possibly implement outlines around gui objects, if possible, and when possible

@@ -15,7 +15,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         BindableFunction = false,
         SendPseudocodeToExternal = false,
         DecompileCallingScriptToExternal = false,
-        PseudocodeWatermark = true,
+        PseudocodeWatermark = 2,
         LogHiddenRemotesCalls = false
     }
 
@@ -31,7 +31,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     else
         local tempSettings = HttpService:JSONDecode(readfile("Remote Spy Settings/Settings.json"))
         for i,v in tempSettings do -- this is in case I add new settings
-            if Settings[i] ~= nil then
+            if Settings[i] ~= nil and type(Settings[i]) == type(v) then
                 Settings[i] = v
             end
         end
@@ -478,9 +478,12 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
 
         for i,v in lines do
-            if not string.match(tostring(i), name) and spyFunctions[idxs[v[1]]].Enabled then -- check for if the remote actually had a log made
+            if not string.match(string.lower(tostring(i)), string.lower(name)) then -- check for if the remote actually had a log made
                 v[2].Visible = false
                 v[4].Visible = false
+            elseif spyFunctions[idxs[v[1]]].Enabled then
+                v[2].Visible = true
+                v[4].Visible = true
             end
         end
     end
@@ -509,7 +512,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     pushTheme(settingsWindow)
 
     -- settings page init
-    local settingsWidth = 283
+    local settingsWidth = 310
     local settingsHeight = 200
     settingsWindow.DefaultSize = Vector2.new(settingsWidth, settingsHeight)
     settingsWindow.CanResize = false
@@ -533,15 +536,11 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     -- Below this is rendering Settings page
 
-    local exitButtonFrame = settingsWindow:SameLine()
+    local topBar = settingsWindow:SameLine()
+    local exitButtonFrame = topBar:SameLine()
     exitButtonFrame:SetColor(RenderColorOption.Button, black, 0)
-
-    local checkBox = exitButtonFrame:SameLine():CheckBox()
-    checkBox.Label = "Send Pseudocode To External UI"
-    checkBox.Value = Settings.SendPseudocodeToExternal
-    table.insert(_G.remoteSpyConnections, checkBox.OnUpdated:Connect(function(value)
-        Settings.SendPseudocodeToExternal = value
-    end))
+    exitButtonFrame:SetColor(RenderColorOption.ButtonHovered, black, 0)
+    exitButtonFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
 
     local exitButton = exitButtonFrame:Indent(settingsWidth-40):Button()
     exitButton.Label = "\xef\x80\x8d"
@@ -549,40 +548,70 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     table.insert(_G.remoteSpyConnections, exitButton.OnUpdated:Connect(function()
         settingsWindow.Visible = false
     end))
+    
+    local tabFrame = topBar:SameLine()
+    local settingsTabs = tabFrame:Indent(-1):TabMenu()
+    local generalTab = settingsTabs:Add("General")
+    local pseudocodeTab = settingsTabs:Add("Pseudocode")
+    local themeTab = settingsTabs:Add("Theme")
+    local creditsTab = settingsTabs:Add("Credits")
 
-    local checkBox2 = settingsWindow:CheckBox()
-    checkBox2.Label = "Decompile Calling Script to External UI"
-    checkBox2.Value = Settings.DecompileCallingScriptToExternal
-    table.insert(_G.remoteSpyConnections, checkBox2.OnUpdated:Connect(function(value)
-        Settings.DecompileCallingScriptToExternal = value
-    end))
+    do  -- general Settings
+        local checkBox = generalTab:SameLine():CheckBox()
+        checkBox.Label = "Send Pseudocode To External UI"
+        checkBox.Value = Settings.SendPseudocodeToExternal
+        table.insert(_G.remoteSpyConnections, checkBox.OnUpdated:Connect(function(value)
+            Settings.SendPseudocodeToExternal = value
+            saveConfig()
+        end))
 
-    local checkBox3 = settingsWindow:CheckBox()
-    checkBox3.Label = "Pseudocode Watermark (External UI)"
-    checkBox3.Value = Settings.PseudocodeWatermark
-    table.insert(_G.remoteSpyConnections, checkBox3.OnUpdated:Connect(function(value)
-        Settings.PseudocodeWatermark = value
-    end))
+        local checkBox2 = generalTab:CheckBox()
+        checkBox2.Label = "Decompile Calling Script to External UI"
+        checkBox2.Value = Settings.DecompileCallingScriptToExternal
+        table.insert(_G.remoteSpyConnections, checkBox2.OnUpdated:Connect(function(value)
+            Settings.DecompileCallingScriptToExternal = value
+            saveConfig()
+        end))
 
-    local checkBox4 = settingsWindow:CheckBox()
-    checkBox4.Label = "Log Hidden Remotes' Calls"
-    table.insert(_G.remoteSpyConnections, checkBox4.OnUpdated:Connect(function(value)
-        Settings.LogHiddenRemotesCalls = value
-    end))
+        local checkBox4 = generalTab:CheckBox()
+        checkBox4.Label = "Log Hidden Remotes' Calls"
+        checkBox4.Value = Settings.LogHiddenRemotesCalls
+        table.insert(_G.remoteSpyConnections, checkBox4.OnUpdated:Connect(function(value)
+            Settings.LogHiddenRemotesCalls = value
+            saveConfig()
+        end))
+    end -- general settings
 
-    addSpacer(settingsWindow, settingsHeight-24-129-24) -- 49 = size of buttons above + topbar, 24 = spacers
+    do -- pseudocode settings
+        pseudocodeTab:Label("Pseudocode Watermark")
+        local combo1 = pseudocodeTab:Combo()
+        combo1.Items = { "Off", "External UI Only", "Always On" }
+        combo1.SelectedItem = Settings.PseudocodeWatermark
+        table.insert(_G.remoteSpyConnections, combo1.OnUpdated:Connect(function(selection)
+            Settings.PseudocodeWatermark = selection
+            saveConfig()
+        end))
+    end -- pseudocode settings
 
-    local saveButton = settingsWindow:Indent((settingsWidth-90)/2-8):Button() -- 8 for padding
-    saveButton.Label = "Save Settings"
-    saveButton.Size = Vector2.new(90, 24)
-    table.insert(_G.remoteSpyConnections, saveButton.OnUpdated:Connect(function()
-        saveConfig()
-        for i = 3,1,-1 do
-            saveButton.Label = "Saved! ("..tostring(i)..")"
-            task.wait(1)
-        end
-        saveButton.Label = "Save Settings"
-    end))
+    do -- theme settings
+        themeTab:Label("Hah No.")
+    end -- theme settings
+
+    do -- credits
+        creditsTab:Label("Written primarily by GameGuy")
+        creditsTab:Label("With Inspriation from Hydroxide")
+        creditsTab:Separator()
+
+        creditsTab:Label("Discord: GameGuy#5286 | 515708480661749770")
+        local setDiscordToClipboard = creditsTab:Button()
+        setDiscordToClipboard.Label = "Set Discord ID To Clipboard"
+        setDiscordToClipboard.OnUpdated:Connect(function()
+            setclipboard("515708480661749770")
+        end)
+        
+        creditsTab:Separator()
+        creditsTab:Label("Thank you to all of the Contributors on Github")
+    end -- credits
 
     -- Below this is rendering Remote Page
 
@@ -797,9 +826,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             if not pcall(function()
                 local pseudo = genPseudo(self, call)
                 if Settings.SendPseudocodeToExternal then
-                    createuitab("RS Pseudocode", genPseudo(self, call, Settings.PseudocodeWatermark)) -- no pseudocode watermark when setting to clipboard
+                    createuitab("RS Pseudocode", genPseudo(self, call, Settings.PseudocodeWatermark == 2)) -- no pseudocode watermark when setting to clipboard
                 else
-                    setclipboard(genPseudo(self, call, false)) -- no pseudocode watermark when setting to clipboard
+                    setclipboard(genPseudo(self, call, Settings.PseudocodeWatermark == 3))
                 end
             end) then
                 pushError("Failed to Generate Pseudocode")
@@ -1183,6 +1212,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         makeBlockButton(sameButtonLine, self)
 
         line[4] = addSpacer(childWindow, 4)
+        line[4].Visible = spyFunctions[idxs[data.Type]].Enabled
 
         lines[self] = line
         filterLines(searchBar.Value)
@@ -1192,7 +1222,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         table.insert(logs[self].Calls, data)
         if lines[self] then
             local callAmt = #logs[self].Calls
-            if callAmt == 1 and spyFunctions[idxs[data.Type]].Enabled then
+            if callAmt > 0 and spyFunctions[idxs[data.Type]].Enabled then
                 lines[self][2].Visible = true
                 lines[self][4].Visible = true
             end
@@ -1247,7 +1277,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 }
             end
 
-            if not logs[self].Ignored and (Settings.LogHiddenRemotesCalls or spyFunctions[idxs[v.Name]].Enabled) then
+            if not logs[self].Ignored and (Settings.LogHiddenRemotesCalls or spyFunctions[idxs[self.ClassName]].Enabled) then
                 local args = {...}
                 local argCount = select("#", ...)
                 if #args > 7995 or checkCyclic(args) then

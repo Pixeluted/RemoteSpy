@@ -128,12 +128,56 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         return bufferMain
     end
 
-    local function purifyString(str: string, quotes: boolean) -- COPIED FROM HYDROXIDE
-        str = string.gsub(str, "\\", "\\\\")
+    local asciiFilteredCharacters = {
+        -- before 0x20 is control characters
+        [" "] = "\\x20",
+        ["!"] = "\\x21",
+        ["\\\""] = "\\x22",
+        ["#"] = "\\x23",
+        ["$"] = "\\x24",
+        ["%%"] = "\\x25",
+        ["&"] = "\\x26",
+        ["\\\'"] = "\\x27",
+        ["("] = "\\x28",
+        [")"] = "\\x29",
+        ["*"] = "\\x2A",
+        ["+"] = "\\x2B",
+        [","] = "\\x2C",
+        ["-"] = "\\x2D",
+        ["."] = "\\x2E",
+        ["/"] = "\\x2F",
+        -- 0x30 ~ 0x39 is nums
+        [":"] = "\\x3A",
+        [";"] = "\\x3B",
+        ["<"] = "\\x3C",
+        ["="] = "\\x3D",
+        [">"] = "\\x3E",
+        ["?"] = "\\x3F",
+        ["@"] = "\\x40",
+        -- 0x41 ~ 0x5A is uppercase alphas
+        ["["] = "\\x5B",
+        ["\\\\"] = "\\x5C",
+        ["]"] = "\\x5D",
+        ["^"] = "\\x5E",
+        ["_"] = "\\x5F",
+        ["`"] = "\\x60",
+        -- 0x61 ~ 0x7A  is lowercase alphas
+        ["{"] = "\\x7B",
+        ["|"] = "\\x7C",
+        ["}"] = "\\x7D",
+        ["~"] = "\\x7E"
+    }
+
+    local function purifyString(str: string, quotes: boolean)
+        str = string.gsub(HttpService:UrlEncode(string.gsub(str, "\\", "\\\\")), "%%", "\\x")
+        for i,v in asciiFilteredCharacters do
+            str = string.gsub(str, v, i)
+        end
+
         if quotes then
-            return '"' .. string.gsub(HttpService:UrlEncode(str), "%%", "\\x") .. '"'
+            return '"' .. str .. '"'
         else
-            return string.gsub(HttpService:UrlEncode(str), "%%", "\\x")
+            return str
         end
     end
     
@@ -171,7 +215,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         return getInstancePath(instance.Parent) .. head
     end
 
-    local function toString(value) -- COPIED FROM HYDROXIDE
+    local function toString(value)
         return type(value) == "userdata" and userdataValue(value) or tostring(value)
     end
 

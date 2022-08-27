@@ -687,7 +687,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         local exitButtonFrame = topBar:Dummy()
         exitButtonFrame:SetColor(RenderColorOption.Button, black, 0)
-        local exitButton = exitButtonFrame:Indent(width-39):Button()
+        exitButtonFrame:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
+        local exitButton = exitButtonFrame:Indent(width-41):Button()
+        exitButton.Size = Vector2.new(24, 24)
         exitButton.Label = "\xef\x80\x8d"
         table.insert(_G.remoteSpyConnections, exitButton.OnUpdated:Connect(unloadRemote))
 
@@ -1062,11 +1064,13 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         clearFilter()
     end))
 
-    local topRightBar = topBar:Indent(498):SameLine()
+    local topRightBar = topBar:Indent(495):SameLine()
     topRightBar:SetColor(RenderColorOption.Button, black, 0)
+    topRightBar:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
 
     local settingsButton = topRightBar:Button()
     settingsButton.Label = "\xef\x80\x93"
+    settingsButton.Size = Vector2.new(24, 24)
     table.insert(_G.remoteSpyConnections, settingsButton.OnUpdated:Connect(function()
         settingsWindow.Visible = not settingsWindow.Visible
     end))

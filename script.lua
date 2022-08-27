@@ -434,7 +434,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
 
             for i = 1, call.NilCount do
-                pseudocode ..= "local nil" .. tostring(i) .. " = nil -- HIDDEN NIL SENT BY THE GAME, THE GAME CAN TELL IF THIS IS NOT SENT, CONTACT GameGuy#5920 FOR MORE INFO\n"
+                pseudocode ..= "local hiddenNil" .. tostring(i) .. " = nil -- games can detect if this is missing, but likely won't.\n"
             end
             pseudocode ..= ("\nlocal remote = " .. getInstancePath(rem) .. "\n") .. ("remote:" .. spyFunctions[idxs[call.Type]].Method .. "(")
             
@@ -447,7 +447,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
 
             for i = 1, call.NilCount do
-                pseudocode ..= ("nil" .. tostring(i) .. ", ")
+                pseudocode ..= ("hiddenNil" .. tostring(i) .. ", ")
             end
 
             return watermark .. (string.sub(pseudocode, 1, -3) .. ")") -- sub gets rid of the last ", "

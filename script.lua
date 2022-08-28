@@ -90,7 +90,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local safeMt = getrawmetatable({})
 
     local function checkCyclic(newTable: table, originalTable: table, stack: number) -- prevents lots of detection methods, automatically checks for stack overflows, cyclic tables, and strips metamethods silently (no more table.freeze or table.__metamethod)
-        stack = stack or 1
+        stack = stack or 0 -- starting at 0 because the first iter would just unnecessarily add to the stack
 
         for _,v in next, newTable do -- next because __iter is detected :(, also we don't want to replace metatables because of the risk of time delay before original metatable is replaced
             if type(v) == "table" then
@@ -98,7 +98,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     return true
                 end
                 
-                if stack == 19997 then
+                if stack == 299 then -- while self function calls go to 19997 before overflowing, remotes and bindables only go to 297
+                    print("RETURNING")
                     return true -- STACK OVERFLOW ATTEMPT
                 end
 
@@ -799,6 +800,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
                 do -- updates remote menu
                     remotePageObjects.MainWindow:Clear()
+                    table.clear(argLines)
                     addSpacer(remotePageObjects.MainWindow, 8)
                 end
             end
@@ -1290,7 +1292,13 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         filterLines(searchBar.Value)
     end
 
-    local function updateLogs(self, data)
+    local tempData, tempRemote
+
+    local function updateLogs(...)
+        local self = tempRemote
+        local data = tempData
+        data.Args = {...} -- bypass stack overflow
+
         table.insert(logs[self].Calls, data)
         if Settings.CacheLimit then
             local callNum = #logs[self].Calls
@@ -1374,11 +1382,12 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 local data = {
                     Type = self.ClassName,
                     Script = getcallingscript(),
-                    Args = args,
                     NilCount = (argCount - #args),
                     FromSynapse = checkcaller()
                 }
-                commsFunc(comms, self, data)
+                tempData = data
+                tempRemote = self
+                commsFunc(comms, ...)
             end
         end, ...)
         
@@ -1408,15 +1417,15 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     if argCount > 7995 or checkCyclic(args) then
                         return
                     end
-
                     local data = {
                         Type = v.Name,
                         Script = getcallingscript(),
-                        Args = args,
                         NilCount = (argCount - #args), -- vuln patch
                         FromSynapse = checkcaller()
                     }
-                    commsFunc(comms, self, data)
+                    tempData = data
+                    tempRemote = self
+                    commsFunc(comms, ...)
                 end
             end, ...)
 
@@ -1428,6 +1437,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         oldfunc = hookfunction(Instance.new(v.Name)[v.Method], newcclosure(newfunction), InstanceFilter.new(1, v.Name))
 
         spyFunctions[i].Function = newfunction
+        spyFunctions[i].OldFunction = oldfunc
     end
 else
     if _G.remoteSpyCommunicationsBindable then

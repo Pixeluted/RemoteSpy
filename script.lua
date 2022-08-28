@@ -1299,6 +1299,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             if callCount > 0 then
                 for i = 1,callCount do
                     if check then
+                        argLines[i]:Clear()
+                        argLines[i].Visible = false
                         table.remove(argLines, i)
                     end
                     table.remove(logs[self].Calls, i)

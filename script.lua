@@ -16,7 +16,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         SendPseudocodeToExternal = false,
         DecompileCallingScriptToExternal = false,
         PseudocodeWatermark = 2,
-        LogHiddenRemotesCalls = false
+        LogHiddenRemotesCalls = false,
+        CacheLimit = true,
+        MaxCallAmount = 1000
     }
 
     local function saveConfig()
@@ -624,6 +626,27 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Settings.LogHiddenRemotesCalls = value
             saveConfig()
         end))
+
+        local checkBox5 = generalTab:CheckBox()
+        checkBox5.Label = "Call Cache Amount Limiter (Per Remote)"
+        checkBox5.Value = Settings.CacheLimit
+        table.insert(_G.remoteSpyConnections, checkBox5.OnUpdated:Connect(function(value)
+            Settings.CacheLimit = value
+            saveConfig()
+        end))
+
+        local slider1 = generalTab:IntSlider()
+        slider1.Label = "Max Calls"
+        slider1.Min = 100
+        slider1.Max = 10000 -- if you need to cache more than 10k calls, just disable caching
+        slider1.Value = Settings.MaxCallAmount
+        slider1.Clamped = true
+        slider1.OnUpdated:Connect(function(value)
+            if value >= 100 and value <= 10000 then -- incase they're mid way through typing it
+                Settings.MaxCallAmount = value
+                saveConfig()
+            end
+        end)
     end -- general settings
 
     do -- pseudocode settings
@@ -679,6 +702,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         remotePage.Visible = false
         currentSelectedRemote = nil
         remotePageObjects.MainWindow:Clear()
+        table.clear(argLines)
     end
 
     local topBar = remotePage:SameLine()
@@ -812,8 +836,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local button = window:Button()
         button.Label = "Get Calling Script"
         table.insert(_G.remoteSpyConnections, button.OnUpdated:Connect(function()
-            local localType = (typeof(call.Script) == "Instance") and call.Script.ClassName
-            local str = (localType == "LocalScript" or localType == "ModuleScript") and getInstancePath(call.Script) -- not sure if getcallingscript can return a ModuleScript, I assume it can't, but adding this just in case
+            local str = call.Script and getInstancePath(call.Script) -- not sure if getcallingscript can return a ModuleScript, I assume it can't, but adding this just in case
             if type(str) == "string" then
                 setclipboard(str)
             else
@@ -831,17 +854,17 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 return
             end
 
-            local localType = (typeof(call.Script) == "Instance") and call.Script.ClassName
             if not pcall(function()
-                local str = (localType == "LocalScript" or localType == "ModuleScript") and decompile(call.Script) -- not sure if getcallingscript can return a ModuleScript, I assume it can't, but adding this just in case
+                local str = decompile(call.Script)
+                local scriptName = call.Script and getInstancePath(call.Script)
                 if type(str) == "string" then
                     if Settings.DecompileCallingScriptToExternal then
-                        createuitab(call.Script:GetFullName(), str)
+                        createuitab(scriptName or "Script Not Found", str)
                     else
                         setclipboard(str)
                     end
                 else
-                    pushError("Failed to Decompile Calling Script")
+                    pushError("Failed to Decompile Calling Script2")
                 end
             end) then
                 pushError("Failed to Decompile Calling Script")
@@ -885,6 +908,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local function makeRemoteViewerLog(window, call, remote)
         local totalArgCount = #call.Args + call.NilCount
         local tempMain = window:Dummy()
+        table.insert(argLines, tempMain)
         tempMain:SetColor(RenderColorOption.ChildBg, Color3.fromRGB(25, 25, 28), 1)
 
         local childWindow = tempMain:Indent(8):Child()
@@ -1268,6 +1292,20 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local function updateLogs(self, data)
         table.insert(logs[self].Calls, data)
+        if Settings.CacheLimit then
+            local callNum = #logs[self].Calls
+            local check = currentSelectedRemote == self
+            local callCount = (callNum-Settings.MaxCallAmount)
+            if callCount > 0 then
+                for i = 1,callCount do
+                    if check then
+                        table.remove(argLines, i)
+                    end
+                    table.remove(logs[self].Calls, i)
+                end
+            end
+        end
+        
         if lines[self] then
             local callAmt = #logs[self].Calls
             if callAmt > 0 and spyFunctions[idxs[data.Type]].Enabled then
@@ -1362,7 +1400,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     }
                 end
 
-                if not logs[self].Ignored and (Settings.LogHiddenRemotesCalls or spyFunctions[idxs[v.Name]].Enabled) then
+                if not logs[self].Ignored and (Settings.LogHiddenRemotesCalls or spyFunctions[i].Enabled) then
                     local args = {...}
                     local argCount = select("#", ...)
                     if argCount > 7995 or checkCyclic(args) then

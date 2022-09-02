@@ -9,10 +9,16 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local HttpService = game:GetService("HttpService")
 
     local Settings = {
-        RemoteEvent = true,
-        RemoteFunction = true,
-        BindableEvent = false,
-        BindableFunction = false,
+        FireServer = true,
+        InvokeServer = true,
+        Fire = false,
+        Invoke = false,
+        --[[
+        OnClientEvent = false,
+        OnClientInvoke = false,
+        OnEvent = false,
+        OnInvoke = false,
+        ]]
         SendPseudocodeToExternal = false,
         DecompileCallingScriptToExternal = false,
         PseudocodeWatermark = 2,
@@ -89,26 +95,34 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local safeMt = getrawmetatable({})
 
-    local function checkCyclic(newTable: table, originalTable: table, stack: number) -- prevents lots of detection methods, automatically checks for stack overflows, cyclic tables, and strips metamethods silently (no more table.freeze or table.__metamethod)
-        stack = stack or 0 -- starting at 0 because the first iter would just unnecessarily add to the stack
+    local function shallowClone(myTable: table, originalTable: table, stack: number) -- cyclic check built in
+        stack = stack or 0 -- you can offset stack by setting the starting parameter to a number
+        local newTable = {}
 
-        for _,v in next, newTable do -- next because __iter is detected :(, also we don't want to replace metatables because of the risk of time delay before original metatable is replaced
+        if stack == 300 then -- this stack overflow check doesn't really matter, it's just to optimize the function.  The actual stack size check is later because it's based on the type of call, and how many args are passed.
+            return false, stack
+        end
+
+        for i,v in next, myTable do
             if type(v) == "table" then
-                if rawequal(v, newTable) or rawequal(v, originalTable) then
-                    return true
-                end
-                
-                if stack == 299 then -- while self function calls go to 19997 before overflowing, remotes and bindables only go to 297
-                    print("RETURNING")
-                    return true -- STACK OVERFLOW ATTEMPT
+                if rawequal(v, originalTable) or rawequal(v, myTable) then
+                    return false
                 end
 
-                local retVal = checkCyclic(v, newTable, stack+1);
+                local newTab, maxStack = shallowClone(v, myTable, stack+1)
+                stack = maxStack
                 
-                return retVal
+                if newTab then
+                    newTable[i] = newTab
+                else
+                    return false, stack -- stack overflow
+                end
+            else
+                newTable[i] = v
             end
         end
-        return false
+
+        return newTable, stack
     end
     
     local function pushTheme(window: RenderChildBase)
@@ -377,41 +391,81 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local spyFunctions = {
         {
-            Name = "RemoteEvent",
+            Name = "FireServer",
+            Object = "RemoteEvent",
+            Type = "Call",
             Method = "FireServer",
             DeprecatedMethod = "fireServer",
-            Enabled = Settings.RemoteEvent,
+            Enabled = Settings.FireServer,
             Icon = "\xef\x83\xa7",
-            Color = Color3.fromRGB(254, 254, 0),
-            oldFunction = nil
+            Color = Color3.fromRGB(254, 254, 0)
         },
         {
-            Name = "RemoteFunction",
+            Name = "InvokeServer",
+            Object = "RemoteFunction",
+            Type = "Call",
             Method = "InvokeServer",
             DeprecatedMethod = "invokeServer",
-            Enabled = Settings.RemoteFunction,
+            Enabled = Settings.InvokeServer,
             Icon = "\xef\x81\xa4",
-            Color = Color3.fromRGB(250, 152, 251),
-            oldFunction = nil
+            Color = Color3.fromRGB(250, 152, 251)
         },
         {
-            Name = "BindableEvent",
+            Name = "Fire",
+            Object = "BindableEvent",
+            Type = "Call",
             Method = "Fire",
             DeprecatedMethod = "fire",
-            Enabled = Settings.BindableEvent,
+            Enabled = Settings.Fire,
             Icon = "\xef\x83\xa7",
-            Color = Color3.fromRGB(200, 100, 0),
-            oldFunction = nil
+            Color = Color3.fromRGB(200, 100, 0)
         },
         {
-            Name = "BindableFunction",
+            Name = "Invoke",
+            Object = "BindableFunction",
+            Type = "Call",
             Method = "Invoke",
             DeprecatedMethod = "invoke",
-            Enabled = Settings.BindableFunction,
+            Enabled = Settings.Invoke,
             Icon = "\xef\x81\xa4",
-            Color = Color3.fromRGB(163, 51, 189),
-            oldFunction = nil
-        }
+            Color = Color3.fromRGB(163, 51, 189)
+        },
+        --[[{
+            Name = "OnClientEvent",
+            Object = "RemoteEvent",
+            Type = "Connection",
+            Connection = "OnClientEvent",
+            Enabled = Settings.OnClientEvent,
+            Icon = "\xef\x83\xa7",
+            Color = Color3.fromRGB(254, 254, 0)
+        },
+        {
+            Name = "OnClientInvoke",
+            Object = "RemoteFunction",
+            Type = "Callback",
+            Callback = "OnClientInvoke",
+            Enabled = Settings.OnClientInvoke,
+            Icon = "\xef\x81\xa4",
+            Color = Color3.fromRGB(250, 152, 251)
+        },
+        {
+            Name = "OnEvent",
+            Object = "BindableEvent",
+            Type = "Connection",
+            Connection = "Event", -- not OnEvent cause roblox naming is wacky
+            Enabled = Settings.OnEvent,
+            Icon = "\xef\x83\xa7",
+            Color = Color3.fromRGB(200, 100, 0)
+        },
+        {
+            Name = "OnInvoke",
+            Object = "BindableFunction",
+            Type = "Callback",
+            Callback = "OnInvoke",
+            Enabled = Settings.OnInvoke,
+            Icon = "\xef\x81\xa4",
+            Color = Color3.fromRGB(163, 51, 189)
+        }]]
     }
 
     local function getCountFromTable(tab: table, target)
@@ -1104,8 +1158,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local sameLine = frontPage:SameLine()
 
+    local splitAmt = (#spyFunctions/2+1)
     for i,v in spyFunctions do
-        if i == 3 then
+        if i == splitAmt then
             sameLine = frontPage:SameLine()
         end
         local tempLine = sameLine:Dummy()
@@ -1115,7 +1170,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         btn.Label = v.Icon
         btn.Value = v.Enabled
         table.insert(_G.remoteSpyConnections, btn.OnUpdated:Connect(function(enabled)
-            spyFunctions[i].Enabled = enabled
+            v.Enabled = enabled
             Settings[v.Name] = enabled
             updateLines(v.Name, enabled)
 
@@ -1292,14 +1347,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         filterLines(searchBar.Value)
     end
 
-    local tempData, tempRemote
-
-    local function updateLogs(...)
-        local self = tempRemote
-        local data = tempData
-        data.Args = {...} -- bypass stack overflow
-
+    local function updateLogs(self, data)
         table.insert(logs[self].Calls, data)
+
         if Settings.CacheLimit then
             local callNum = #logs[self].Calls
             local check = currentSelectedRemote == self
@@ -1333,15 +1383,46 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
     end
 
-    _G.remoteSpyCommunicationsBindable = Instance.new("BindableEvent")
-    local comms = _G.remoteSpyCommunicationsBindable
-    table.insert(_G.remoteSpyConnections, comms.Event:Connect(updateLogs))
-    local commsFunc = comms.Fire
+    local synapseUpdateLogsThread = coroutine.create(updateLogs)
+    local defer = task.defer
+    local spawnFunc = task.spawn
 
-    local filters = {}
+    local function sendLog(self, func, ...)
+            
+        if not logs[self] then
+            logs[self] = {
+                Blocked = false,
+                Ignored = false,
+                Calls = {}
+            }
+        end
+
+        if not logs[self].Ignored and (Settings.LogHiddenRemotesCalls or spyFunctions[idxs[self.ClassName]].Enabled) then
+            local args, tableDepth = shallowClone({...}, nil, -1) -- 1 deeper total
+            local argCount = select("#", ...)
+            if not args or #args > 7995 or (argCount-1 + tableDepth) >= 299 then
+                return
+            end
+
+            local data = {
+                Type = self.ClassName,
+                Script = getcallingscript(),
+                Args = args, -- 2 deeper total
+                NilCount = (argCount - #args),
+                FromSynapse = checkcaller(),
+                InvokeFunction = func
+            }
+
+            spawnFunc(synapseUpdateLogsThread, self, data)
+            synapseUpdateLogsThread = coroutine.create(updateLogs)
+        end
+    end
+
+    local namecallFilters = {}
+
     for _,v in spyFunctions do
-        table.insert(filters, AllFilter.new({
-            InstanceFilter.new(1, v.Name),
+        table.insert(namecallFilters, AllFilter.new({
+            InstanceFilter.new(1, v.Object),
             AnyFilter.new({
                 NamecallFilter.new(v.Method),
                 NamecallFilter.new(v.DeprecatedMethod)
@@ -1362,87 +1443,32 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local oldNamecall
     oldNamecall = newHookMetamethod(game, "__namecall", function(self, ...)
-        if self == comms then return oldNamecall(self, ...) end
 
-        task.defer(function(...)
-            if not logs[self] then
-                logs[self] = {
-                    Blocked = false,
-                    Ignored = false,
-                    Calls = {}
-                }
-            end
-
-            if not logs[self].Ignored and (Settings.LogHiddenRemotesCalls or spyFunctions[idxs[self.ClassName]].Enabled) then
-                local args = {...}
-                local argCount = select("#", ...)
-                if #args > 7995 or checkCyclic(args) then
-                    return
-                end
-                local data = {
-                    Type = self.ClassName,
-                    Script = getcallingscript(),
-                    NilCount = (argCount - #args),
-                    FromSynapse = checkcaller()
-                }
-                tempData = data
-                tempRemote = self
-                commsFunc(comms, ...)
-            end
-        end, ...)
+        defer(sendLog, self, nil, ...)
         
         if logs[self] and logs[self].Blocked then return end
 
         return oldNamecall(self, ...)
-    end, AnyFilter.new(filters))
+    end, AnyFilter.new(namecallFilters))
 
     for i,v in spyFunctions do
+        if v.isCallback then continue end
 
         local oldfunc
         local newfunction = function(self, ...)
-            if self == comms then return oldfunc(self, ...) end
 
-            task.defer(function(...)
-                if not logs[self] then
-                    logs[self] = {
-                        Blocked = false,
-                        Ignored = false,
-                        Calls = {}
-                    }
-                end
-
-                if not logs[self].Ignored and (Settings.LogHiddenRemotesCalls or spyFunctions[i].Enabled) then
-                    local args = {...}
-                    local argCount = select("#", ...)
-                    if argCount > 7995 or checkCyclic(args) then
-                        return
-                    end
-                    local data = {
-                        Type = v.Name,
-                        Script = getcallingscript(),
-                        NilCount = (argCount - #args), -- vuln patch
-                        FromSynapse = checkcaller()
-                    }
-                    tempData = data
-                    tempRemote = self
-                    commsFunc(comms, ...)
-                end
-            end, ...)
+            defer(sendLog, self, nil, ...)
 
             if not logs[self] or not logs[self].Blocked then
                 return oldfunc(self, ...)
             end
         end
 
-        oldfunc = hookfunction(Instance.new(v.Name)[v.Method], newcclosure(newfunction), InstanceFilter.new(1, v.Name))
+        oldfunc = hookfunction(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceFilter.new(1, v.Object))
 
-        spyFunctions[i].Function = newfunction
-        spyFunctions[i].OldFunction = oldfunc
+        v.Function = newfunction
     end
 else
-    if _G.remoteSpyCommunicationsBindable then
-        _G.remoteSpyCommunicationsBindable:Destroy()
-    end
 
     for _,v in _G.remoteSpyConnections do
         v:Disconnect()

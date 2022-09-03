@@ -1384,7 +1384,10 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         filterLines(searchBar.Value)
     end
 
+    local synapseUpdateLogsThread
+
     local function updateLogs(self, data)
+        synapseUpdateLogsThread = coroutine.create(updateLogs)
         table.insert(logs[self].Calls, data)
 
         if Settings.CacheLimit then
@@ -1420,7 +1423,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
     end
 
-    local synapseUpdateLogsThread = coroutine.create(updateLogs)
+    synapseUpdateLogsThread = coroutine.create(updateLogs)
     local defer = task.defer
     local spawnFunc = task.spawn
 
@@ -1451,7 +1454,6 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             }
 
             spawnFunc(synapseUpdateLogsThread, self, data)
-            synapseUpdateLogsThread = coroutine.create(updateLogs)
         end
     end
 

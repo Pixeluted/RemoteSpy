@@ -13,12 +13,13 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         InvokeServer = true,
         Fire = false,
         Invoke = false,
-        --[[
+        
         OnClientEvent = false,
         OnClientInvoke = false,
         OnEvent = false,
         OnInvoke = false,
-        ]]
+        CallbackButtons = false,
+
         SendPseudocodeToExternal = false,
         DecompileCallingScriptToExternal = false,
         PseudocodeWatermark = 2,
@@ -106,7 +107,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         for i,v in next, myTable do
             if type(v) == "table" then
                 if rawequal(v, originalTable) or rawequal(v, myTable) then
-                    return false
+                    return false, stack
                 end
 
                 local newTab, maxStack = shallowClone(v, myTable, stack+1)
@@ -383,10 +384,14 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local curPage = 1
 
     local idxs = {
-        RemoteEvent = 1,
-        RemoteFunction = 2,
-        BindableEvent = 3,
-        BindableFunction = 4
+        FireServer = 1,
+        InvokeServer = 2,
+        Fire = 3,
+        Invoke = 4,
+        OnClientEvent = 5,
+        OnClientInvoke = 6,
+        OnEvent = 7,
+        OnInvoke = 8,
     }
 
     local spyFunctions = {
@@ -398,7 +403,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedMethod = "fireServer",
             Enabled = Settings.FireServer,
             Icon = "\xef\x83\xa7",
-            Color = Color3.fromRGB(254, 254, 0)
+            Color = Color3.fromRGB(254, 254, 0),
+            Indent = 0
         },
         {
             Name = "InvokeServer",
@@ -408,7 +414,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedMethod = "invokeServer",
             Enabled = Settings.InvokeServer,
             Icon = "\xef\x81\xa4",
-            Color = Color3.fromRGB(250, 152, 251)
+            Color = Color3.fromRGB(250, 152, 251),
+            Indent = 153
         },
         {
             Name = "Fire",
@@ -418,7 +425,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedMethod = "fire",
             Enabled = Settings.Fire,
             Icon = "\xef\x83\xa7",
-            Color = Color3.fromRGB(200, 100, 0)
+            Color = Color3.fromRGB(200, 100, 0),
+            Indent = 319
         },
         {
             Name = "Invoke",
@@ -428,16 +436,19 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedMethod = "invoke",
             Enabled = Settings.Invoke,
             Icon = "\xef\x81\xa4",
-            Color = Color3.fromRGB(163, 51, 189)
+            Color = Color3.fromRGB(163, 51, 189),
+            Indent = 434
         },
-        --[[{
+
+        {
             Name = "OnClientEvent",
             Object = "RemoteEvent",
             Type = "Connection",
             Connection = "OnClientEvent",
             Enabled = Settings.OnClientEvent,
             Icon = "\xef\x83\xa7",
-            Color = Color3.fromRGB(254, 254, 0)
+            Color = Color3.fromRGB(254, 254, 0),
+            Indent = 0,
         },
         {
             Name = "OnClientInvoke",
@@ -446,7 +457,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Callback = "OnClientInvoke",
             Enabled = Settings.OnClientInvoke,
             Icon = "\xef\x81\xa4",
-            Color = Color3.fromRGB(250, 152, 251)
+            Color = Color3.fromRGB(250, 152, 251),
+            Indent = 153,
         },
         {
             Name = "OnEvent",
@@ -455,7 +467,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Connection = "Event", -- not OnEvent cause roblox naming is wacky
             Enabled = Settings.OnEvent,
             Icon = "\xef\x83\xa7",
-            Color = Color3.fromRGB(200, 100, 0)
+            Color = Color3.fromRGB(200, 100, 0),
+            Indent = 319
         },
         {
             Name = "OnInvoke",
@@ -464,8 +477,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Callback = "OnInvoke",
             Enabled = Settings.OnInvoke,
             Icon = "\xef\x81\xa4",
-            Color = Color3.fromRGB(163, 51, 189)
-        }]]
+            Color = Color3.fromRGB(163, 51, 189),
+            Indent = 434
+        }
     }
 
     local function getCountFromTable(tab: table, target)
@@ -558,6 +572,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local lines = {}
     local argLines = {}
     local logs = {}
+    local callbackButtonline
+    --local invokeLogs = {}
     local remFuncs = {}
 
     local searchBar -- declared later
@@ -625,7 +641,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     settingsWindow:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
 
     -- main page init
-    local width = 536
+    local width = 562
     mainWindow.DefaultSize = Vector2.new(width, 350)
     mainWindow.MinSize = Vector2.new(width, 350)
     mainWindow.MaxSize = Vector2.new(width, 5000)
@@ -633,7 +649,6 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local frontPage = mainWindow:Dummy()
     local remotePage = mainWindow:Dummy()
-
 
     -- Below this is rendering Settings page
 
@@ -659,10 +674,20 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     do  -- general Settings
         local checkBox = generalTab:SameLine():CheckBox()
-        checkBox.Label = "Send Pseudocode To External UI"
-        checkBox.Value = Settings.SendPseudocodeToExternal
+        checkBox.Label = "Display Callbacks/Connections (TBA)"
+        checkBox.Value = Settings.CallbackButtons
         table.insert(_G.remoteSpyConnections, checkBox.OnUpdated:Connect(function(value)
-            Settings.SendPseudocodeToExternal = value
+            Settings.CallbackButtons = value
+            callbackButtonline.Visible = value
+            if not value then
+                for i = 5,8 do
+                    local spyFunc = spyFunctions[i]
+                    spyFunc.Button.Value = false
+                    spyFunc.Enabled = false
+                    Settings[spyFunc.Name] = false
+                end
+            end
+            updateLines(searchBar.Value)
             saveConfig()
         end))
 
@@ -675,7 +700,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end))
 
         local checkBox4 = generalTab:CheckBox()
-        checkBox4.Label = "Log Hidden Remotes' Calls"
+        checkBox4.Label = "Cache Unselected Remotes' Calls"
         checkBox4.Value = Settings.LogHiddenRemotesCalls
         table.insert(_G.remoteSpyConnections, checkBox4.OnUpdated:Connect(function(value)
             Settings.LogHiddenRemotesCalls = value
@@ -705,6 +730,14 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     end -- general settings
 
     do -- pseudocode settings
+        local checkBox = pseudocodeTab:SameLine():CheckBox()
+        checkBox.Label = "Send Pseudocode To External UI"
+        checkBox.Value = Settings.SendPseudocodeToExternal
+        table.insert(_G.remoteSpyConnections, checkBox.OnUpdated:Connect(function(value)
+            Settings.SendPseudocodeToExternal = value
+            saveConfig()
+        end))
+
         pseudocodeTab:Label("Pseudocode Watermark")
         local combo1 = pseudocodeTab:Combo()
         combo1.Items = { "Off", "External UI Only", "Always On" }
@@ -1127,8 +1160,11 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     -- Below this is rendering Front Page
     local topBar = frontPage:SameLine()
-    searchBar = topBar:TextBox()
-    searchBar.Size = Vector2.new(width-188, 24)
+    local frameWidth = width-130
+    local searchBarFrame = topBar:Indent(-0.35*frameWidth):Child()
+    searchBarFrame.Size = Vector2.new(frameWidth, 24)
+    searchBarFrame:SetColor(RenderColorOption.ChildBg, black, 0)
+    searchBar = searchBarFrame:Indent(0.35*frameWidth):TextBox() -- localized earlier
     table.insert(_G.remoteSpyConnections, searchBar.OnUpdated:Connect(filterLines))
     
     local searchButton = topBar:Button()
@@ -1144,45 +1180,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         clearFilter()
     end))
 
-    local topRightBar = topBar:Indent(495):SameLine()
-    topRightBar:SetColor(RenderColorOption.Button, black, 0)
-    topRightBar:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
-
-    local settingsButton = topRightBar:Button()
-    settingsButton.Label = "\xef\x80\x93"
-    settingsButton.Size = Vector2.new(24, 24)
-    table.insert(_G.remoteSpyConnections, settingsButton.OnUpdated:Connect(function()
-        settingsWindow.Visible = not settingsWindow.Visible
-    end))
-
-
-    local sameLine = frontPage:SameLine()
-
-    local splitAmt = (#spyFunctions/2+1)
-    for i,v in spyFunctions do
-        if i == splitAmt then
-            sameLine = frontPage:SameLine()
-        end
-        local tempLine = sameLine:Dummy()
-        tempLine:SetColor(RenderColorOption.Text, v.Color, 1)
-        
-        local btn = tempLine:CheckBox()
-        btn.Label = v.Icon
-        btn.Value = v.Enabled
-        table.insert(_G.remoteSpyConnections, btn.OnUpdated:Connect(function(enabled)
-            v.Enabled = enabled
-            Settings[v.Name] = enabled
-            updateLines(v.Name, enabled)
-
-            saveConfig()
-        end))
-
-        sameLine:Label(v.Name)
-    end
-
-    -- below the above loop so that it gets placed on the bottom row of options
-    local clearAllLogsFrame = sameLine:Indent(width-108) -- 100 because button is 92 wide, plus 8 px padding on right edge, plus 8px because left edge is over intended by 8
-    local clearAllLogsButton = clearAllLogsFrame:Button()
+    local clearAllLogsButton = topBar:Button()
     clearAllLogsButton.Label = "Clear All Logs"
     table.insert(_G.remoteSpyConnections, clearAllLogsButton.OnUpdated:Connect(function()
         for i,v in logs do
@@ -1196,11 +1194,50 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
         end
     end))
+
+    local topRightBar = topBar:Indent(width-40):SameLine()
+    topRightBar:SetColor(RenderColorOption.Button, black, 0)
+    topRightBar:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
+
+    local settingsButton = topRightBar:Button()
+    settingsButton.Label = "\xef\x80\x93"
+    settingsButton.Size = Vector2.new(24, 24)
+    table.insert(_G.remoteSpyConnections, settingsButton.OnUpdated:Connect(function()
+        settingsWindow.Visible = not settingsWindow.Visible
+    end))
+    
+    addSpacer(frontPage, 4)
+
+    local sameLine = frontPage:SameLine()
+
+    local splitAmt = (math.floor(#spyFunctions/2)+1)
+    for i,v in spyFunctions do
+        if i == splitAmt then
+            sameLine = frontPage:SameLine()
+            sameLine.Visible = Settings.CallbackButtons
+            callbackButtonline = sameLine
+        end
+
+        local tempLine = v.Indent == 0 and sameLine:Dummy() or sameLine:Indent(v.Indent):Dummy()
+        tempLine:SetColor(RenderColorOption.Text, v.Color, 1)
+        
+        local btn = tempLine:CheckBox()
+        btn.Label = v.Icon
+        btn.Value = v.Enabled
+        v.Button = btn
+        table.insert(_G.remoteSpyConnections, btn.OnUpdated:Connect(function(enabled)
+            v.Enabled = enabled
+            Settings[v.Name] = enabled
+            updateLines(v.Name, enabled)
+
+            saveConfig()
+        end))
+
+        sameLine:Label(v.Name)
+    end
     
     frontPage:SetColor(RenderColorOption.ChildBg, colorOptions.TitleBg[1], 1)
     frontPage:SetStyle(RenderStyleOption.ChildRounding, 5)
-
-    addSpacer(frontPage, 4)
 
     local childWindow = frontPage:Child()
     childWindow:SetStyle(RenderStyleOption.ItemSpacing, Vector2.new(4, 0))
@@ -1387,7 +1424,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local defer = task.defer
     local spawnFunc = task.spawn
 
-    local function sendLog(self, func, ...)
+    local function sendLog(self, method, func, ...)
             
         if not logs[self] then
             logs[self] = {
@@ -1397,7 +1434,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             }
         end
 
-        if not logs[self].Ignored and (Settings.LogHiddenRemotesCalls or spyFunctions[idxs[self.ClassName]].Enabled) then
+        if not logs[self].Ignored and (Settings.LogHiddenRemotesCalls or spyFunctions[idxs[method]].Enabled) then
             local args, tableDepth = shallowClone({...}, nil, -1) -- 1 deeper total
             local argCount = select("#", ...)
             if not args or #args > 7995 or (argCount-1 + tableDepth) >= 299 then
@@ -1405,7 +1442,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
 
             local data = {
-                Type = self.ClassName,
+                Type = method,
                 Script = getcallingscript(),
                 Args = args, -- 2 deeper total
                 NilCount = (argCount - #args),
@@ -1419,16 +1456,52 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     end
 
     local namecallFilters = {}
+    --local indexFilters = {}
+
+    -- line 515 needs to be uncommented when I later decide to add in the callback stuff
 
     for _,v in spyFunctions do
-        table.insert(namecallFilters, AllFilter.new({
-            InstanceFilter.new(1, v.Object),
-            AnyFilter.new({
-                NamecallFilter.new(v.Method),
-                NamecallFilter.new(v.DeprecatedMethod)
-            })
-        }))
+        --[[if v.isCallback then
+            table.insert(indexFilters, AllFilter.new({
+                InstanceFilter.new(1, v.Object),
+                ArgumentFilter.new(2, v.Name),
+                TypeFilter.new(3, "function")
+            }))
+        else]]
+        if v.Type == "Call" then
+            table.insert(namecallFilters, AllFilter.new({
+                InstanceFilter.new(1, v.Object),
+                AnyFilter.new({
+                    NamecallFilter.new(v.Method),
+                    NamecallFilter.new(v.DeprecatedMethod)
+                })
+            }))
+        end
+        --end
     end
+
+    --[[local function addInvoke(remote: RemoteFunction, func)
+        if not invokeLogs[remote] then
+            invokeLogs[remote] = {
+                CurrentFunction = nil,
+                Ignored = false,
+                Blocked = false,
+                Calls = {}
+            }
+        elseif invokeLogs[remote].CurrentFunction then
+            restorefunction(invokeLogs[remote].CurrentFunction)
+        end
+
+        invokeLogs[remote].CurrentFunction = func
+
+        local oldfunc
+        oldfunc = hookfunction(func, function(...)
+            local retVal = oldfunc(...)
+            defer(sendLog, self, func, retVal)
+
+            return retVal
+        end)
+    end]]
 
     local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
         local oldFunction
@@ -1441,32 +1514,67 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         return oldFunction
     end
 
-    local oldNamecall
-    oldNamecall = newHookMetamethod(game, "__namecall", function(self, ...)
+    --[[local oldNewIndex -- this is for OnClientInvoke hooks
+    oldNewIndex = newHookMetamethod(game, "__index", function(self, idx, newidx)
+        addInvoke(self, newidx)
+        return oldNewIndex(self, idx, newidx)
+    end, AnyFilter.new(indexFilters))
 
-        defer(sendLog, self, nil, ...)
+    do -- init OnClientInvoke
+        for _,v in getnilinstances() do
+            if v.ClassName == "RemoteFunction" then
+                local func = getcallbackmember(v, "OnClientInvoke")
+                if func then
+                    addInvoke(v, func)
+                end
+            end
+            for _,x in v:GetDescendants() do
+                if x.ClassName == "RemoteFunction" then
+                    local func = getcallbackmember(x, "OnClientInvoke")
+                    if func then
+                        addInvoke(x, func)
+                    end
+                end
+            end
+        end
+
+        for _,v in game:GetDescendants() do
+            if v.ClassName == "RemoteFunction" then
+                local func = getcallbackmember(v, "OnClientInvoke")
+                if func then
+                    addInvoke(v, func)
+                end
+            end
+        end
+    end]]
+
+    local oldNamecall
+    oldNamecall = newHookMetamethod(game, "__namecall", newcclosure(function(self, ...)
+
+        defer(sendLog, self, getnamecallmethod(), nil, ...)
         
         if logs[self] and logs[self].Blocked then return end
 
         return oldNamecall(self, ...)
-    end, AnyFilter.new(namecallFilters))
+    end), AnyFilter.new(namecallFilters))
 
     for i,v in spyFunctions do
-        if v.isCallback then continue end
+        if v.Type == "Call" then
 
-        local oldfunc
-        local newfunction = function(self, ...)
+            local oldfunc
+            local newfunction = function(self, ...)
 
-            defer(sendLog, self, nil, ...)
+                defer(sendLog, self, v.Name, nil, ...)
 
-            if not logs[self] or not logs[self].Blocked then
-                return oldfunc(self, ...)
+                if not logs[self] or not logs[self].Blocked then
+                    return oldfunc(self, ...)
+                end
             end
+
+            oldfunc = hookfunction(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceFilter.new(1, v.Object))
+
+            v.Function = newfunction
         end
-
-        oldfunc = hookfunction(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceFilter.new(1, v.Object))
-
-        v.Function = newfunction
     end
 else
 

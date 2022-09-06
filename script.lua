@@ -1465,14 +1465,14 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     for _,v in spyFunctions do
         --[[if v.isCallback then
             table.insert(indexFilters, AllFilter.new({
-                InstanceFilter.new(1, v.Object),
+                InstanceTypeFilter.new(1, v.Object),
                 ArgumentFilter.new(2, v.Name),
                 TypeFilter.new(3, "function")
             }))
         else]]
         if v.Type == "Call" then
             table.insert(namecallFilters, AllFilter.new({
-                InstanceFilter.new(1, v.Object),
+                InstanceTypeFilter.new(1, v.Object),
                 AnyFilter.new({
                     NamecallFilter.new(v.Method),
                     NamecallFilter.new(v.DeprecatedMethod)
@@ -1573,7 +1573,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 end
             end
 
-            oldfunc = hookfunction(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceFilter.new(1, v.Object))
+            oldfunc = hookfunction(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object))
 
             v.Function = newfunction
         end

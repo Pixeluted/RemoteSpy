@@ -6,7 +6,7 @@ end
 
 if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
-    local HttpService = game:GetService("HttpService")
+    local HttpService = cloneref(game:GetService("HttpService"))
 
     local Settings = {
         FireServer = true,

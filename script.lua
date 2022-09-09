@@ -7,6 +7,13 @@ end
 if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local HttpService = cloneref(game:GetService("HttpService"))
+    local Players = cloneref(game:GetService("Players"))
+    local client = Players.LocalPlayer
+    if not client then -- autoexec moment
+        task.spawn(function()
+            repeat task.wait(); client = Players.LocalPlayer until client
+        end)
+    end
 
     local Settings = {
         FireServer = true,
@@ -214,7 +221,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         else
             local _success, result = pcall(game.GetService, game, instance.ClassName)
             
-            if result then
+            if _success and result then
                 head = ':GetService("' .. instance.ClassName .. '")'
             elseif instance == client then
                 head = '.LocalPlayer' 

@@ -530,7 +530,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
                 local varPrefix = ""
                 if primTyp ~= "function" then
-                    varPrefix = "local " .. typ .. tostring(amt) .. ": ".. tempTyp .." = "
+                    varPrefix = "local " .. typ .. tostring(amt) .. --[[": ".. tempTyp ..]]" = "
                 else
                     varPrefix = "local " .. typ .. tostring(amt) .." = "
                 end

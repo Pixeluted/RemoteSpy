@@ -4,7 +4,7 @@ local url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/s
 loadstring(syn.request({ Url = url }).Body)()
 ```
 
-## Script
+## Beta Script
 **WARNING, YOU MUST LEFT CLICK REMOTE ARG LOGS TO VIEW OPTIONS**
 ```lua
 local url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/scriptBeta.lua"

@@ -1,4 +1,4 @@
--- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW FORKED PSUEDOCODE RELATED FUNCTIONS
+-- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW COPIED TOSTRING FUNCTIONS
 
 if not RenderWindow then
     error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
@@ -271,7 +271,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local gameId, workspaceId = game:GetDebugId(), workspace:GetDebugId()
     
-    local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
+    local function getInstancePath(instance) -- COPIED FROM HYDROXIDE
         local name = instance.Name
         local head = (#name > 0 and '.' .. name) or "['']"
         
@@ -379,12 +379,12 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         return tostring(data)
     end
 
-    local function tableToString(data, format, root, indents) -- FORKED FROM HYDROXIDE
+    local function tableToString(data, format, root, indents) -- COPIED FROM HYDROXIDE
         local dataType = type(data)
 
         format = (format==true) or (format==nil) or ((format==false) and false)
 
-        if dataType == "userdata" then
+        if dataType == "userdata" or dataType == "vector" then
             return (typeof(data) == "Instance" and getInstancePath(data)) or userdataValue(data)
         elseif dataType == "string" then
             local success, result = pcall(purifyString, data, true)
@@ -424,17 +424,17 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             else
                 return elements > 0 and (sub(head, 1, -3) .. ' }') or "{}"
             end
-        elseif primTyp == "function" and (call.Type == "BindableEvent" or call.Type == "BindableFunction") then -- functions are only receivable through bindables, not remotes
-            varConstructor = 'nil -- "' .. tostring(arg) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
-        elseif primTyp == "thread" and false then -- dont bother listing threads because they can never be sent
-            varConstructor = 'nil -- "' .. tostring(arg) .. '"  THREADS CANT BE MADE INTO PSEUDOCODE' -- just in case
-        elseif primTyp == "thread" or primTyp == "function" then
+        elseif dataType == "function" and (call.Type == "BindableEvent" or call.Type == "BindableFunction") then -- functions are only receivable through bindables, not remotes
+            varConstructor = 'nil -- "' .. tostring(data) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
+        elseif dataType == "thread" and false then -- dont bother listing threads because they can never be sent
+            varConstructor = 'nil -- "' .. tostring(data) .. '"  THREADS CANT BE MADE INTO PSEUDOCODE' -- just in case
+        elseif dataType == "thread" or dataType == "function" then
             varConstructor = "nil"
-        elseif primTyp == "number" then
-            if #match(tostring(arg), "%d") == 0 then
-                return ("tonumber(\"" .. tostring(arg) .. "\")")
+        elseif dataType == "number" then
+            if not match(tostring(data), "%d") then
+                return ("tonumber(\"" .. tostring(data) .. "\")")
             else
-                return tostring(arg)
+                return tostring(data)
             end
         else
             return tostring(data)
@@ -700,28 +700,28 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
                 if Settings.PseudocodeInliningMode == 3 and primTyp == "table" then
                     pseudocode ..= (varPrefix .. (varConstructor .. "\n"))
-                    addedArg = false
+                    addedArg = true
                 elseif Settings.PseudocodeInliningMode == 2 and (primTyp == "table" or primTyp == "userdata") then
                     pseudocode ..= (varPrefix .. (varConstructor .. "\n"))
-                    addedArg = false
+                    addedArg = true
                 elseif Settings.PseudocodeInliningMode == 1 then
                     pseudocode ..= (varPrefix .. (varConstructor .. "\n"))
-                    addedArg = false
+                    addedArg = true
                 end
             end
 
             if Settings.PseudocodeInlineHiddenNils then 
                 for i = 1, call.NilCount do
                     pseudocode ..= "local hiddenNil" .. tostring(i) .. " = nil -- games can detect if this is missing, but likely won't.\n"
-                    addedArg = false
+                    addedArg = true
                 end
             end
             if spyFunc.Type == "Call" then
-                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "" .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n") .. ("remote:" .. spyFunc.Method .. "(")) or (getInstancePath(rem) .. ":" .. spyFunc.Method .. "(")
+                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\nremote:" .. spyFunc.Method .. "(") or (getInstancePath(rem) .. ":" .. spyFunc.Method .. "(")
             elseif spyFunc.Type == "Connection" then
-                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "" .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n") .. ("firesignal(remote." .. spyFunc.Connection .. ", ")) or ("firesignal(" .. getInstancePath(rem) .. "." .. spyFunc.Connection .. ", ")
+                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\nfiresignal(remote." .. spyFunc.Connection .. ", ") or ("firesignal(" .. getInstancePath(rem) .. "." .. spyFunc.Connection .. ", ")
             elseif spyFunc.Type == "Callback" then
-                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "" .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n") .. ("getcallbackmember(remote." .. spyFunc.Callback .. ")(")) or ("getcallbackmember(" .. getInstancePath(rem) .. ", " .. spyFunc.Callback .. ")(")
+                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\ngetcallbackmember(remote." .. spyFunc.Callback .. ")(") or ("getcallbackmember(" .. getInstancePath(rem) .. ", " .. spyFunc.Callback .. ")(")
             end
 
             if Settings.PseudocodeInliningMode == 4 then
@@ -1241,9 +1241,6 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 do -- updates remote menu
                     for _,v in argLines do
                         v[2]:Clear()
-                        for _,x in v[2] do
-                            x:Disconnect()
-                        end
                     end
                     table.clear(argLines)
                     remoteViewerMainWindow:Clear()
@@ -1422,7 +1419,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local button = window:Selectable()
         button.Label = "Generate Calling Pseudocode"
         local con = button.OnUpdated:Connect(function()
-            if not pcall(function()
+            if not print(pcall(function()
                 if Settings.SendPseudocodeToExternal then
                     createuitab("RS Pseudocode", genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 2))
                     pushSuccess("Generated Pseudocode to External UI")
@@ -1430,7 +1427,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     setclipboard(genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 3)) -- no pseudocode watermark when setting to clipboard
                     pushSuccess("Generated Pseudocode to Clipboard")
                 end
-            end) then
+            end)) then
                 pushError("Failed to Generate Pseudocode")
             end
         end)
@@ -1608,10 +1605,10 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         if totalArgCount < 2 then
             childWindow.Size = Vector2.new(width-46, 24 + 16) -- 2 lines (top line = 24) + 2x (8px) spacers  | -46 because 16 padding on each side, plus 14 wide scrollbar
-        elseif totalArgCount < 10 then
+        elseif totalArgCount <= 10 then
             childWindow.Size = Vector2.new(width-46, (totalArgCount * 28) - 4 + 16) -- 24px per line, 4px spacer, 16px header and footer  | -46 because 16 padding on each side, plus 14 wide scrollbar
         else -- 28 pixels per line (24 for arg, 4 for spacer), but -4 because no spacer at end, then +24 because button line, and +24 for top, bottom, and middle spacer
-            childWindow.Size = Vector2.new(width-46, (9 * 28) - 4 + 24 + 24)
+            childWindow.Size = Vector2.new(width-46, (10 * 28) - 4 + 16)
         end
 
         local mainButton = secondChild:Button()
@@ -2258,7 +2255,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                             sendLog(remote, data)
                         end
                     end
-                --end, ...)
+                end, ...)
 
                 if otherLogs[remote].Blocked then 
                     return false
@@ -2444,4 +2441,4 @@ else
     cleanUpSpy()
 end
 
--- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW FORKED PSUEDOCODE RELATED FUNCTIONS
+-- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW COPIED TOSTRING FUNCTIONS

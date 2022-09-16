@@ -1,7 +1,13 @@
 ## Script
-If you don't see it after executing, open your internal ui.
 ```lua
 local url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/script.lua"
+loadstring(syn.request({ Url = url }).Body)()
+```
+
+## Script
+**WARNING, YOU MUST LEFT CLICK REMOTE ARG LOGS TO VIEW OPTIONS**
+```lua
+local url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/scriptBeta.lua"
 loadstring(syn.request({ Url = url }).Body)()
 ```
 
@@ -12,11 +18,11 @@ loadstring(syn.request({ Url = url }).Body)()
 
 # To Do:
 * Redo all functions copied from Hydroxide (most could use some major optimizations for this usecase)
-* Implement RenderPopups once they get added properly
-* Clean up gui code once RenderPopups get added
+* Implement RenderPopups once they get added properly // started working on this in the beta
+* Clean up gui code once RenderPopups get added // started working on this in the beta
 * Possibly implement outlines around gui objects, if possible, and when possible
 * Implement a condition system (arg guard of sorts), for blocking certain remote calls that were called with: x amount of args, type(arg) == x at index y, etc.  (Basically just implement the Filter api into the RemoteSpy)
 
 # Credits
 * Made by GameGuy#5286
-* Some functions were "borrowed" and modified + (micro) optimized from Hydroxide (pseudocode related functions), these functions are labelled in the source code
+* Some functions were "borrowed" and modified + optimized from Hydroxide (pseudocode related functions), these functions are labelled in the source code

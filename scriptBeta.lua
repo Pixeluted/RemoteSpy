@@ -1,5 +1,10 @@
 -- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW COPIED TOSTRING FUNCTIONS
 
+
+-- TO DO:
+    -- Can't scroll args when hovering over arg button cause of focus loss (Need to rework the entire way clicking args works)
+
+
 if not RenderWindow then
     error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
 end
@@ -34,11 +39,11 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local HttpService = cloneref(game:GetService("HttpService"))
     local Players = cloneref(game:GetService("Players"))
-    local client = Players.LocalPlayer
-    local clientid = client and client:GetDebugId()
+    local client, clientid
     if not client then -- autoexec moment
         task.spawn(function()
-            repeat task.wait(); client = Players.LocalPlayer until client
+            repeat task.wait(); until Players.LocalPlayer
+            client = cloneref(Players.LocalPlayer)
             clientid = client:GetDebugId()
         end)
     end
@@ -623,7 +628,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local function getCountFromTable(tab: table, target)
         local count = 0
         for _,v in tab do
-            if v == target then
+            if v[1] == target then
                 count += 1
             end
         end
@@ -654,13 +659,14 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 local tempTyp = typeof(arg)
                 local typ = (gsub(tempTyp, "^%u", lower))
 
+                argCallCount[typ] = argCallCount[typ] and argCallCount[typ] + 1 or 1
+
+                local varName = typ .. tostring(argCallCount[typ])
+
                 if primTyp == "thread" or (primTyp == "function" and (call.Type == "RemoteEvent" or call.Type == "RemoteFunction")) then
                     typ = "nil" -- functions are only receivable through bindables, not remotes
                     primTyp = "nil"
                 end -- dont bother listing threads because they can never be sent
-
-                local amt = getCountFromTable(argCalls, typ) + 1
-                table.insert(argCallCount, amt)
 
                 if primTyp == "nil" then
                     continue
@@ -668,9 +674,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
                 local varPrefix = ""
                 if primTyp ~= "function" and Settings.PseudocodeLuaUTypes then
-                    varPrefix = "local " .. typ .. tostring(amt) .. ": ".. tempTyp .." = "
+                    varPrefix = "local " .. varName .. ": ".. tempTyp .." = "
                 else
-                    varPrefix = "local " .. typ .. tostring(amt) .." = "
+                    varPrefix = "local " .. varName .." = "
                 end
                 local varConstructor = ""
 
@@ -696,7 +702,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     varConstructor = tostring(arg)
                 end
 
-                table.insert(argCalls, { typ, primTyp, varConstructor })
+                table.insert(argCalls, { typ, primTyp, varConstructor, varName })
 
                 if Settings.PseudocodeInliningMode == 3 and primTyp == "table" then
                     pseudocode ..= (varPrefix .. (varConstructor .. "\n"))
@@ -717,11 +723,11 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 end
             end
             if spyFunc.Type == "Call" then
-                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\nremote:" .. spyFunc.Method .. "(") or (getInstancePath(rem) .. ":" .. spyFunc.Method .. "(")
+                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n" .. (spyFunc.ReturnsValue and "local returnValue = " or "") .. "remote:" .. spyFunc.Method .. "(") or (getInstancePath(rem) .. ":" .. spyFunc.Method .. "(")
             elseif spyFunc.Type == "Connection" then
-                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\nfiresignal(remote." .. spyFunc.Connection .. ", ") or ("firesignal(" .. getInstancePath(rem) .. "." .. spyFunc.Connection .. ", ")
+                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n" .. (spyFunc.ReturnsValue--[[yes i know this is redundant]] and "local returnValue = " or "") .. "firesignal(remote." .. spyFunc.Connection .. ", ") or ("firesignal(" .. getInstancePath(rem) .. "." .. spyFunc.Connection .. ", ")
             elseif spyFunc.Type == "Callback" then
-                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\ngetcallbackmember(remote." .. spyFunc.Callback .. ")(") or ("getcallbackmember(" .. getInstancePath(rem) .. ", " .. spyFunc.Callback .. ")(")
+                pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n" .. (spyFunc.ReturnsValue and "local returnValue = " or "") .. "getcallbackmember(remote." .. spyFunc.Callback .. ")(") or ("getcallbackmember(" .. getInstancePath(rem) .. ", " .. spyFunc.Callback .. ")(")
             end
 
             if Settings.PseudocodeInliningMode == 4 then
@@ -737,7 +743,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     if v[1] == "nil" then
                         pseudocode ..= "nil, "
                     elseif (v[2] == "table") then
-                        pseudocode ..= ( v[1] .. argCallCount[i] .. ", " )
+                        pseudocode ..= ( v[4] .. ", " )
                     else
                         pseudocode ..= ( v[3] .. ", " )
                     end
@@ -747,7 +753,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     if v[1] == "nil" then
                         pseudocode ..= "nil, "
                     elseif (v[2] == "table" or v[2] == "userdata") then
-                        pseudocode ..= ( v[1] .. argCallCount[i] .. ", " )
+                        pseudocode ..= ( v[4] .. ", " )
                     else
                         pseudocode ..= ( v[3] .. ", " )
                     end
@@ -757,7 +763,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     if v[1] == "nil" then
                         pseudocode ..= "nil, "
                     else
-                        pseudocode ..= ( v[1] .. argCallCount[i] .. ", " )
+                        pseudocode ..= ( v[4] .. ", " )
                     end
                 end
             end
@@ -772,7 +778,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 end
             end
 
-            return watermark .. (spyFunc.ReturnsValue and "local returnValue = " or "") .. (sub(pseudocode, -2, -2) == "," and sub(pseudocode, 1, -3) or pseudocode) .. ")" -- sub gets rid of the last ", "
+            return watermark .. (sub(pseudocode, -2, -2) == "," and sub(pseudocode, 1, -3) or pseudocode) .. ")" -- sub gets rid of the last ", "
         end
     end
 
@@ -1419,7 +1425,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local button = window:Selectable()
         button.Label = "Generate Calling Pseudocode"
         local con = button.OnUpdated:Connect(function()
-            if not print(pcall(function()
+            if not pcall(function()
                 if Settings.SendPseudocodeToExternal then
                     createuitab("RS Pseudocode", genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 2))
                     pushSuccess("Generated Pseudocode to External UI")
@@ -1427,7 +1433,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     setclipboard(genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 3)) -- no pseudocode watermark when setting to clipboard
                     pushSuccess("Generated Pseudocode to Clipboard")
                 end
-            end)) then
+            end) then
                 pushError("Failed to Generate Pseudocode")
             end
         end)
@@ -1640,8 +1646,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local con = mainButton.OnUpdated:Connect(function()
             pop:Show()
         end)
-        mainButton.Size = childWindow.Size
-        secondChild.Size = childWindow.Size
+        mainButton.Size = Vector2.new(childWindow.Size.X - 18, childWindow.Size.Y)
+        secondChild.Size = Vector2.new(childWindow.Size.X - 18, childWindow.Size.Y)
 
         local textFrame = childWindow:Dummy()
 
@@ -2177,8 +2183,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 deferFunc(deferFunc, function(...)
                     local spyFunc = spyFunctions[idxs[method]]
                     if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                        local args2 = {...}
+
                         local args = shallowClone({...}, nil, -1)
+                        local argCount = select("#", ...)
 
                         local callingScript = otherCheckCaller[remote] or {nil, checkcaller()}
 
@@ -2190,7 +2197,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                             Script = callingScript[1],
                             Args = args, -- 2 deeper total
                             CallbackLog = otherLogs[remote],
-                            NilCount = 0,
+                            NilCount = (argCount - #args),
                             ReturnValue = retVal,
                             FromSynapse = callingScript[2]
                         }
@@ -2241,6 +2248,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                         
                         if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
                             local args = shallowClone({...}, nil, -1)
+                            local argCount = select("#", ...)
                             local data = {
                                 TypeIndex = idxs[signalType],
                                 Script = callingScript[1],
@@ -2248,7 +2256,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                                 Connections = connectionCache,
                                 Signal = signal,
                                 Args = args, -- 2 deeper total
-                                NilCount = 0,
+                                NilCount = (argCount - #args),
                                 FromSynapse = callingScript[2]
                             }
 

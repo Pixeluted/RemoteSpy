@@ -168,7 +168,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         for i,v in next, myTable do
             if type(v) == "table" then
 
-                local newTab, maxStack = shallowClone(v, myTable, stack+1)
+                local newTab, maxStack = shallowClone(v, stack+1)
                 stack = maxStack
                 
                 if newTab then
@@ -192,7 +192,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 end
             end
         end
-
+        
         return newTable, stack
     end
     
@@ -2129,8 +2129,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         if not callLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
 
             local args, tableDepth = shallowClone({...}, nil, -1) -- 1 deeper total
-            warn(args, tableDepth)
             local argCount = select("#", ...)
+
             if not args or #args > 7995 or (argCount-1 + tableDepth) >= 299 then
                 return
             end

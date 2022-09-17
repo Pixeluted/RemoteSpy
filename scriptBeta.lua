@@ -1,4 +1,4 @@
--- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW COPIED TOSTRING FUNCTIONS
+-- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW FORKED TOSTRING FUNCTIONS
 
 
 -- TO DO:
@@ -157,19 +157,16 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         })
     end
 
-    local function shallowClone(myTable: table, originalTable: table, stack: number) -- cyclic check built in
+    local function shallowClone(myTable: table, stack: number) -- cyclic check built in
         stack = stack or 0 -- you can offset stack by setting the starting parameter to a number
         local newTable = {}
 
-        if stack == 300 then -- this stack overflow check doesn't really matter, it's just to optimize the function.  The actual stack size check is later because it's based on the type of call, and how many args are passed.
+        if stack == 300 then -- this stack overflow check doesn't really matter as a stack overflow check, it's just here to make sure there are no cyclic tables.  While I could just check for cyclics directly, this is faster.
             return false, stack
         end
 
         for i,v in next, myTable do
             if type(v) == "table" then
-                if rawequal(v, originalTable) or rawequal(v, myTable) then
-                    return false, stack
-                end
 
                 local newTab, maxStack = shallowClone(v, myTable, stack+1)
                 stack = maxStack
@@ -276,7 +273,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local gameId, workspaceId = game:GetDebugId(), workspace:GetDebugId()
     
-    local function getInstancePath(instance) -- COPIED FROM HYDROXIDE
+    local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
         local name = instance.Name
         local head = (#name > 0 and '.' .. name) or "['']"
         
@@ -335,7 +332,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         return type(value) == "userdata" and userdataValue(value) or tostring(value)
     end
 
-    local function userdataValue(data) -- COPIED FROM HYDROXIDE
+    local function userdataValue(data) -- FORKED FROM HYDROXIDE
         local dataType = typeof(data)
 
         if dataType == "userdata" then
@@ -384,7 +381,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         return tostring(data)
     end
 
-    local function tableToString(data, format, root, indents) -- COPIED FROM HYDROXIDE
+    local function tableToString(data, format, root, indents) -- FORKED FROM HYDROXIDE
         local dataType = type(data)
 
         format = (format==true) or (format==nil) or ((format==false) and false)
@@ -2132,6 +2129,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         if not callLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
 
             local args, tableDepth = shallowClone({...}, nil, -1) -- 1 deeper total
+            warn(args, tableDepth)
             local argCount = select("#", ...)
             if not args or #args > 7995 or (argCount-1 + tableDepth) >= 299 then
                 return
@@ -2449,4 +2447,4 @@ else
     cleanUpSpy()
 end
 
--- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW COPIED TOSTRING FUNCTIONS
+-- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW FORKED TOSTRING FUNCTIONS

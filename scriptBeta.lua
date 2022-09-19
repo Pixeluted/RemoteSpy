@@ -1,9 +1,9 @@
 -- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW FORKED TOSTRING FUNCTIONS
 
-
 -- TO DO:
     -- Can't scroll args when hovering over arg button cause of focus loss (Need to rework the entire way clicking args works)
-
+    -- Make main window remote list use popups (depends on OnRightClick)
+    -- Make arg list use right click (depends on defcon)
 
 if not RenderWindow then
     error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
@@ -94,13 +94,13 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
     end
 
-    local deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match = task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match
+    local colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match = Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match
 
-    local red = Color3.fromRGB(255, 0, 0)
-    local green = Color3.fromRGB(0, 255, 0)
-    local white = Color3.fromRGB(255, 255, 255)
-    local grey = Color3.fromRGB(144, 144, 144)
-    local black = Color3.fromRGB()
+    local red = colorRGB(255, 0, 0)
+    local green = colorRGB(0, 255, 0)
+    local white = colorRGB(255, 255, 255)
+    local grey = colorRGB(144, 144, 144)
+    local black = colorRGB()
 
     local styleOptions = {
         WindowRounding = 5,
@@ -114,29 +114,29 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local colorOptions = {
         Border = {black, 1},
-        TitleBgActive = {Color3.fromRGB(35, 35, 38), 1},
-        TitleBg = {Color3.fromRGB(35, 35, 38), 1},
-        TitleBgCollapsed = {Color3.fromRGB(35, 35, 38), 1},
-        WindowBg = {Color3.fromRGB(50, 50, 53), 1},
-        PopupBg = {Color3.fromRGB(20, 20, 23), 0.95},
-        Button = {Color3.fromRGB(75, 75, 78), 1},
-        ButtonHovered = {Color3.fromRGB(85, 85, 88), 1},
-        ButtonActive = {Color3.fromRGB(115, 115, 118), 1},
+        TitleBgActive = {colorRGB(35, 35, 38), 1},
+        TitleBg = {colorRGB(35, 35, 38), 1},
+        TitleBgCollapsed = {colorRGB(35, 35, 38), 1},
+        WindowBg = {colorRGB(50, 50, 53), 1},
+        PopupBg = {colorRGB(20, 20, 23), 0.95},
+        Button = {colorRGB(75, 75, 78), 1},
+        ButtonHovered = {colorRGB(85, 85, 88), 1},
+        ButtonActive = {colorRGB(115, 115, 118), 1},
         Text = {white, 1},
-        ResizeGrip = {Color3.fromRGB(65, 65, 68), 1},
-        ResizeGripActive = {Color3.fromRGB(115, 115, 118), 1},
-        ResizeGripHovered = {Color3.fromRGB(85, 85, 88), 1},
+        ResizeGrip = {colorRGB(65, 65, 68), 1},
+        ResizeGripActive = {colorRGB(115, 115, 118), 1},
+        ResizeGripHovered = {colorRGB(85, 85, 88), 1},
         CheckMark = {white, 1},
-        FrameBg = {Color3.fromRGB(20, 20, 23), 1},
-        FrameBgHovered = {Color3.fromRGB(22, 22, 25), 1},
-        FrameBgActive = {Color3.fromRGB(30, 30, 35), 1},
-        Tab = {Color3.fromRGB(33, 36, 38), 1},
-        TabActive = {Color3.fromRGB(20, 20, 23), 1},
-        TabHovered = {Color3.fromRGB(119, 119, 119), 1},
-        TabUnfocused = {Color3.fromRGB(60, 60, 60), 1},
-        TabUnfocusedActive = {Color3.fromRGB(20, 20, 23), 1},
-        HeaderHovered = {Color3.fromRGB(55, 55, 55), 1},
-        HeaderActive = {Color3.fromRGB(75, 75, 75), 1},
+        FrameBg = {colorRGB(20, 20, 23), 1},
+        FrameBgHovered = {colorRGB(22, 22, 25), 1},
+        FrameBgActive = {colorRGB(30, 30, 35), 1},
+        Tab = {colorRGB(33, 36, 38), 1},
+        TabActive = {colorRGB(20, 20, 23), 1},
+        TabHovered = {colorRGB(119, 119, 119), 1},
+        TabUnfocused = {colorRGB(60, 60, 60), 1},
+        TabUnfocusedActive = {colorRGB(20, 20, 23), 1},
+        HeaderHovered = {colorRGB(55, 55, 55), 1},
+        HeaderActive = {colorRGB(75, 75, 75), 1},
     }
 
     local function pushError(message: string)
@@ -160,6 +160,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local function shallowClone(myTable: table, stack: number) -- cyclic check built in
         stack = stack or 0 -- you can offset stack by setting the starting parameter to a number
         local newTable = {}
+        local hasTable = false
+
+        if #myTable > 0 then stack += 1 end -- replacing the old method because stack doesnt increase unless args are added
 
         if stack == 300 then -- this stack overflow check doesn't really matter as a stack overflow check, it's just here to make sure there are no cyclic tables.  While I could just check for cyclics directly, this is faster.
             return false, stack
@@ -167,8 +170,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         for i,v in next, myTable do
             if type(v) == "table" then
+                hasTable = true
 
-                local newTab, maxStack = shallowClone(v, stack+1)
+                local newTab, maxStack = shallowClone(v, stack)
                 stack = maxStack
                 
                 if newTab then
@@ -193,7 +197,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
         end
         
-        return newTable, stack
+        return newTable, stack, hasTable
     end
     
     local function pushTheme(window: RenderChildBase)
@@ -444,23 +448,23 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     end
 
     local types = {
-        ["string"] = { Color3.fromHSV(29/360, 0.8, 1), function(obj)
+        ["string"] = { colorHSV(29/360, 0.8, 1), function(obj)
             return purifyString(obj, true)
         end },
-        ["number"] = { Color3.fromHSV(120/360, 0.8, 1), function(obj)
+        ["number"] = { colorHSV(120/360, 0.8, 1), function(obj)
             return tostring(obj)
         end },
-        ["boolean"] = { Color3.fromHSV(211/360, 0.8, 1), function(obj)
+        ["boolean"] = { colorHSV(211/360, 0.8, 1), function(obj)
             return tostring(obj)
         end },
         ["table"] = { white, function(obj)
             return tostring(obj)
         end },
 
-        --[[["userdata"] = { Color3.fromHSV(258/360, 0.8, 1), function(obj)
+        --[[["userdata"] = { colorHSV(258/360, 0.8, 1), function(obj)
             return "Unprocessed Userdata: " .. typeof(obj) .. ": " .. tostring(obj)
         end },
-        ["Instance"] = { Color3.fromHSV(57/360, 0.8, 1), function(obj)
+        ["Instance"] = { colorHSV(57/360, 0.8, 1), function(obj)
             return tostring(obj)
         end },]]
 
@@ -472,7 +476,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             -- threads can't be received by Remotes or Bindables
             return tostring(obj) -- threads dont get sent by bindables, which I use to communicate with the remotespy, so if your logs are showing nil when you want them to show a thread, that's why.
         end },
-        ["nil"] = { Color3.fromHSV(360/360, 0.8, 1), function(obj)
+        ["nil"] = { colorHSV(360/360, 0.8, 1), function(obj)
             return "nil"
         end }
     }
@@ -488,9 +492,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             return st[2](arg), st[1]
         elseif t == "userdata" or t == "vector" then
             local st = userdataValue(arg)
-            return st, (typeof(arg) == "Instance" and Color3.fromHSV(57/360, 0.8, 1)) or Color3.fromHSV(314/360, 0.8, 1)
+            return st, (typeof(arg) == "Instance" and colorHSV(57/360, 0.8, 1)) or colorHSV(314/360, 0.8, 1)
         else
-            return ("Unprocessed Lua Type: " .. tostring(t)), Color3.new(1, 1, 1)
+            return ("Unprocessed Lua Type: " .. tostring(t)), colorRGB(1, 1, 1)
         end
     end
     
@@ -524,7 +528,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedMethod = "fireServer",
             Enabled = Settings.FireServer,
             Icon = "\xef\x83\xa7",
-            Color = Color3.fromRGB(253, 206, 0),
+            Color = colorRGB(253, 206, 0),
             Indent = 0
         },
         {
@@ -536,7 +540,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedMethod = "invokeServer",
             Enabled = Settings.InvokeServer,
             Icon = "\xef\x81\xa4",
-            Color = Color3.fromRGB(250, 152, 251),
+            Color = colorRGB(250, 152, 251),
             Indent = 153
         },
         {
@@ -548,7 +552,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedMethod = "fire",
             Enabled = Settings.Fire,
             Icon = "\xef\x83\xa7",
-            Color = Color3.fromRGB(200, 100, 0),
+            Color = colorRGB(200, 100, 0),
             Indent = 319
         },
         {
@@ -561,7 +565,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedMethod = "invoke",
             Enabled = Settings.Invoke,
             Icon = "\xef\x81\xa4",
-            Color = Color3.fromRGB(163, 51, 189),
+            Color = colorRGB(163, 51, 189),
             Indent = 434
         },
 
@@ -574,7 +578,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedConnection = "onClientEvent",
             Enabled = Settings.OnClientEvent,
             Icon = "\xef\x83\xa8",
-            Color = Color3.fromRGB(253, 206, 0),
+            Color = colorRGB(253, 206, 0),
             Indent = 0
         },
         {
@@ -587,7 +591,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedCallback = "onClientInvoke",
             Enabled = Settings.OnClientInvoke,
             Icon = "\xef\x84\xa2",
-            Color = Color3.fromRGB(250, 152, 251),
+            Color = colorRGB(250, 152, 251),
             Indent = 153
         },
         {
@@ -598,7 +602,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedConnection = "event",
             Enabled = Settings.OnEvent,
             Icon = "\xef\x83\xa8",
-            Color = Color3.fromRGB(200, 100, 0),
+            Color = colorRGB(200, 100, 0),
             Indent = 319
         },
         {
@@ -610,7 +614,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             DeprecatedCallback = "onInvoke",
             Enabled = Settings.OnInvoke,
             Icon = "\xef\x84\xa2",
-            Color = Color3.fromRGB(163, 51, 189),
+            Color = colorRGB(163, 51, 189),
             Indent = 434
         }
     }
@@ -699,7 +703,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     varConstructor = tostring(arg)
                 end
 
-                table.insert(argCalls, { typ, primTyp, varConstructor, varName })
+                tableInsert(argCalls, { typ, primTyp, varConstructor, varName })
 
                 if Settings.PseudocodeInliningMode == 3 and primTyp == "table" then
                     pseudocode ..= (varPrefix .. (varConstructor .. "\n"))
@@ -728,7 +732,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
 
             if Settings.PseudocodeInliningMode == 4 then
-                for i,v in argCalls do
+                for _,v in argCalls do
                     if v[1] == "nil" then
                         pseudocode ..= "nil, "
                     else
@@ -736,7 +740,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     end
                 end
             elseif Settings.PseudocodeInliningMode == 3 then
-                for i,v in argCalls do
+                for _,v in argCalls do
                     if v[1] == "nil" then
                         pseudocode ..= "nil, "
                     elseif (v[2] == "table") then
@@ -746,7 +750,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     end
                 end
             elseif Settings.PseudocodeInliningMode == 2 then
-                for i,v in argCalls do
+                for _,v in argCalls do
                     if v[1] == "nil" then
                         pseudocode ..= "nil, "
                     elseif (v[2] == "table" or v[2] == "userdata") then
@@ -756,7 +760,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     end
                 end
             else
-                for i,v in argCalls do
+                for _,v in argCalls do
                     if v[1] == "nil" then
                         pseudocode ..= "nil, "
                     else
@@ -776,6 +780,141 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
 
             return watermark .. (sub(pseudocode, -2, -2) == "," and sub(pseudocode, 1, -3) or pseudocode) .. ")" -- sub gets rid of the last ", "
+        end
+    end
+
+    local function genReturnValuePseudo(returnTable, spyFunc, watermark)
+        local watermark = watermark and "--Pseudocode Generated by GameGuy's Remote Spy\n\n" or ""
+
+        if #returnTable.Args == 0 and returnTable.NilCount == 0 then
+            return watermark .. "return"
+        else
+            local argCalls = {}
+            local argCallCount = {}
+
+            local pseudocode = ""
+            local addedArg = false
+
+            for i = 1, #returnTable.Args do
+                local arg = returnTable.Args[i]
+                local primTyp = type(arg)
+                local tempTyp = typeof(arg)
+                local typ = (gsub(tempTyp, "^%u", lower))
+
+                argCallCount[typ] = argCallCount[typ] and argCallCount[typ] + 1 or 1
+
+                local varName = typ .. tostring(argCallCount[typ])
+
+                if primTyp == "thread" or (primTyp == "function" and spyFunc.Object == "BindableFunction") then
+                    typ = "nil" -- functions are only receivable through bindables, not remotes
+                    primTyp = "nil"
+                end -- dont bother listing threads because they can never be sent
+
+                if primTyp == "nil" then
+                    continue
+                end
+
+                local varPrefix = ""
+                if primTyp ~= "function" and Settings.PseudocodeLuaUTypes then
+                    varPrefix = "local " .. varName .. ": ".. tempTyp .." = "
+                else
+                    varPrefix = "local " .. varName .." = "
+                end
+                local varConstructor = ""
+
+                if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
+                    varConstructor = (typ == "Instance" and getInstancePath(arg)) or userdataValue(arg)
+                elseif primTyp == "table" then
+                    varConstructor = tableToString(arg, Settings.PseudocodeFormatTables)
+                elseif primTyp == "string" then
+                    varConstructor = purifyString(arg, true)
+                elseif primTyp == "function" then
+                    varConstructor = 'nil -- "' .. tostring(arg) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
+                elseif primTyp == "thread" then
+                    varConstructor = 'nil -- "' .. tostring(arg) .. '"  THREADS CANT BE MADE INTO PSEUDOCODE' -- just in case
+                elseif primTyp == "thread" or primTyp == "function" then
+                    varConstructor = "nil"
+                elseif primTyp == "number" then
+                    if not match(tostring(arg), "%d") then
+                        varConstructor = ("tonumber(\"" .. tostring(arg) .. "\")")
+                    else
+                        varConstructor = tostring(arg)
+                    end
+                else
+                    varConstructor = tostring(arg)
+                end
+
+                tableInsert(argCalls, { typ, primTyp, varConstructor, varName })
+
+                if Settings.PseudocodeInliningMode == 3 and primTyp == "table" then
+                    pseudocode ..= (varPrefix .. (varConstructor .. "\n"))
+                    addedArg = true
+                elseif Settings.PseudocodeInliningMode == 2 and (primTyp == "table" or primTyp == "userdata") then
+                    pseudocode ..= (varPrefix .. (varConstructor .. "\n"))
+                    addedArg = true
+                elseif Settings.PseudocodeInliningMode == 1 then
+                    pseudocode ..= (varPrefix .. (varConstructor .. "\n"))
+                    addedArg = true
+                end
+            end
+
+            if Settings.PseudocodeInlineHiddenNils then 
+                for i = 1, returnTable.NilCount do
+                    pseudocode ..= "local hiddenNil" .. tostring(i) .. " = nil -- games can detect if this is missing, but likely won't.\n"
+                    addedArg = true
+                end
+            end
+            pseudocode ..= (addedArg and "\n" or "") .. "return "
+
+            if Settings.PseudocodeInliningMode == 4 then
+                for _,v in argCalls do
+                    if v[1] == "nil" then
+                        pseudocode ..= "nil, "
+                    else
+                        pseudocode ..= (v[3] .. ", ")
+                    end
+                end
+            elseif Settings.PseudocodeInliningMode == 3 then
+                for _,v in argCalls do
+                    if v[1] == "nil" then
+                        pseudocode ..= "nil, "
+                    elseif (v[2] == "table") then
+                        pseudocode ..= ( v[4] .. ", " )
+                    else
+                        pseudocode ..= ( v[3] .. ", " )
+                    end
+                end
+            elseif Settings.PseudocodeInliningMode == 2 then
+                for _,v in argCalls do
+                    if v[1] == "nil" then
+                        pseudocode ..= "nil, "
+                    elseif (v[2] == "table" or v[2] == "userdata") then
+                        pseudocode ..= ( v[4] .. ", " )
+                    else
+                        pseudocode ..= ( v[3] .. ", " )
+                    end
+                end
+            else
+                for _,v in argCalls do
+                    if v[1] == "nil" then
+                        pseudocode ..= "nil, "
+                    else
+                        pseudocode ..= ( v[4] .. ", " )
+                    end
+                end
+            end
+
+            if Settings.PseudocodeInlineHiddenNils then
+                for i = 1, returnTable.NilCount do
+                    pseudocode ..= ("hiddenNil" .. tostring(i) .. ", ")
+                end
+            else
+                for _ = 1, returnTable.NilCount do
+                    pseudocode ..= "nil, "
+                end
+            end
+
+            return watermark .. sub(pseudocode, 1, -3) -- gets rid of last ", "
         end
     end
 
@@ -947,7 +1086,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local exitButton = exitButtonFrame:Indent(settingsWidth-40):Button()
     exitButton.Label = "\xef\x80\x8d"
     exitButton.Size = Vector2.new(25, 25)
-    table.insert(_G.remoteSpyGuiConnections, exitButton.OnUpdated:Connect(function()
+    tableInsert(_G.remoteSpyGuiConnections, exitButton.OnUpdated:Connect(function()
         settingsWindow.Visible = false
     end))
     
@@ -961,7 +1100,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox = generalTab:CheckBox()
         checkBox.Label = "Display Callbacks And Connections"
         checkBox.Value = Settings.CallbackButtons
-        table.insert(_G.remoteSpyGuiConnections, checkBox.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox.OnUpdated:Connect(function(value)
             Settings.CallbackButtons = value
             callbackButtonline.Visible = value
             if not value then
@@ -979,7 +1118,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox2 = generalTab:CheckBox()
         checkBox2.Label = "Decompile Scripts to External UI"
         checkBox2.Value = Settings.DecompileScriptsToExternal
-        table.insert(_G.remoteSpyGuiConnections, checkBox2.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox2.OnUpdated:Connect(function(value)
             Settings.DecompileScriptsToExternal = value
             saveConfig()
         end))
@@ -987,7 +1126,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox3 = generalTab:CheckBox()
         checkBox3.Label = "List Connection Scripts to External UI"
         checkBox3.Value = Settings.ListConnectionScriptsToExternal
-        table.insert(_G.remoteSpyGuiConnections, checkBox3.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox3.OnUpdated:Connect(function(value)
             Settings.ListConnectionScriptsToExternal = value
             saveConfig()
         end))
@@ -995,7 +1134,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox4 = generalTab:CheckBox()
         checkBox4.Label = "Cache Unselected Remotes' Calls"
         checkBox4.Value = Settings.LogHiddenRemotesCalls
-        table.insert(_G.remoteSpyGuiConnections, checkBox4.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox4.OnUpdated:Connect(function(value)
             Settings.LogHiddenRemotesCalls = value
             saveConfig()
         end))
@@ -1003,7 +1142,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox6 = generalTab:CheckBox()
         checkBox6.Label = "Call Cache Amount Limiter (Per Remote)"
         checkBox6.Value = Settings.CacheLimit
-        table.insert(_G.remoteSpyGuiConnections, checkBox6.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox6.OnUpdated:Connect(function(value)
             Settings.CacheLimit = value
             saveConfig()
         end))
@@ -1024,7 +1163,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox5 = generalTab:CheckBox()
         checkBox5.Label = "Extra Repeat Call Amounts"
         checkBox5.Value = Settings.MoreRepeatCallOptions
-        table.insert(_G.remoteSpyGuiConnections, checkBox5.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox5.OnUpdated:Connect(function(value)
             Settings.MoreRepeatCallOptions = value
             saveConfig()
         end))
@@ -1034,7 +1173,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox = pseudocodeTab:CheckBox()
         checkBox.Label = "Send Pseudocode To External UI"
         checkBox.Value = Settings.SendPseudocodeToExternal
-        table.insert(_G.remoteSpyGuiConnections, checkBox.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox.OnUpdated:Connect(function(value)
             Settings.SendPseudocodeToExternal = value
             saveConfig()
         end))
@@ -1042,7 +1181,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox2 = pseudocodeTab:CheckBox()
         checkBox2.Label = "Use LuaU Type Declaration in Pseudocode"
         checkBox2.Value = Settings.PseudocodeLuaUTypes
-        table.insert(_G.remoteSpyGuiConnections, checkBox2.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox2.OnUpdated:Connect(function(value)
             Settings.PseudocodeLuaUTypes = value
             saveConfig()
         end))
@@ -1051,7 +1190,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local combo1 = pseudocodeTab:Combo()
         combo1.Items = { "Off", "External UI Only", "Always On" }
         combo1.SelectedItem = Settings.PseudocodeWatermark
-        table.insert(_G.remoteSpyGuiConnections, combo1.OnUpdated:Connect(function(selection)
+        tableInsert(_G.remoteSpyGuiConnections, combo1.OnUpdated:Connect(function(selection)
             Settings.PseudocodeWatermark = selection
             saveConfig()
         end))
@@ -1060,7 +1199,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local combo2 = pseudocodeTab:Combo()
         combo2.Items = { "Everything", "Tables And Userdatas", "Tables Only", "Nothing" }
         combo2.SelectedItem = Settings.PseudocodeInliningMode
-        table.insert(_G.remoteSpyGuiConnections, combo2.OnUpdated:Connect(function(selection)
+        tableInsert(_G.remoteSpyGuiConnections, combo2.OnUpdated:Connect(function(selection)
             Settings.PseudocodeInliningMode = selection
             saveConfig()
         end))
@@ -1068,7 +1207,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox3 = pseudocodeTab:CheckBox()
         checkBox3.Label = "Inline Remote"
         checkBox3.Value = Settings.PseudocodeInlineRemote
-        table.insert(_G.remoteSpyGuiConnections, checkBox3.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox3.OnUpdated:Connect(function(value)
             Settings.PseudocodeInlineRemote = value
             saveConfig()
         end))
@@ -1076,7 +1215,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox4 = pseudocodeTab:CheckBox()
         checkBox4.Label = "Inline Hidden Nils"
         checkBox4.Value = Settings.PseudocodeInlineHiddenNils
-        table.insert(_G.remoteSpyGuiConnections, checkBox4.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox4.OnUpdated:Connect(function(value)
             Settings.PseudocodeInlineHiddenNils = value
             saveConfig()
         end))
@@ -1084,7 +1223,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local checkBox5 = pseudocodeTab:CheckBox()
         checkBox5.Label = "Format Tables"
         checkBox5.Value = Settings.PseudocodeFormatTables
-        table.insert(_G.remoteSpyGuiConnections, checkBox5.OnUpdated:Connect(function(value)
+        tableInsert(_G.remoteSpyGuiConnections, checkBox5.OnUpdated:Connect(function(value)
             Settings.PseudocodeFormatTables = value
             saveConfig()
         end))
@@ -1137,7 +1276,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         for _,v in argLines do
             v[2]:Clear()
         end
-        table.clear(argLines)
+        tableClear(argLines)
         remoteViewerMainWindow:Clear()
     end
 
@@ -1151,7 +1290,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local exitButton = exitButtonFrame:Indent(width-41):Button()
         exitButton.Size = Vector2.new(24, 24)
         exitButton.Label = "\xef\x80\x8d"
-        table.insert(_G.remoteSpyGuiConnections, exitButton.OnUpdated:Connect(unloadRemote))
+        tableInsert(_G.remoteSpyGuiConnections, exitButton.OnUpdated:Connect(unloadRemote))
 
         local remoteNameFrame = topBar:Dummy()
         remoteNameFrame:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
@@ -1187,7 +1326,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local ignoreButton = ignoreButtonFrame:Button()
         ignoreButton.Label = "Ignore"
         
-        table.insert(_G.remoteSpyGuiConnections, ignoreButton.OnUpdated:Connect(function()
+        tableInsert(_G.remoteSpyGuiConnections, ignoreButton.OnUpdated:Connect(function()
             if currentSelectedRemote then
                 local funcList = (currentSelectedType == "Call") and callFuncs or otherFuncs
                 local logs = (currentSelectedType == "Call") and callLogs or otherLogs 
@@ -1209,7 +1348,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         blockButtonFrame:SetColor(RenderColorOption.Text, red, 1)
         local blockButton = blockButtonFrame:Button()
         blockButton.Label = "Block"
-        table.insert(_G.remoteSpyGuiConnections, blockButton.OnUpdated:Connect(function()
+        tableInsert(_G.remoteSpyGuiConnections, blockButton.OnUpdated:Connect(function()
             local logs = (currentSelectedType == "Call") and callLogs or otherLogs
             local funcList = (currentSelectedType == "Call") and callFuncs or otherFuncs
 
@@ -1228,12 +1367,12 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end))
         local clearLogsButton = buttonBar:Button()
         clearLogsButton.Label = "Clear Logs"
-        table.insert(_G.remoteSpyGuiConnections, clearLogsButton.OnUpdated:Connect(function()
+        tableInsert(_G.remoteSpyGuiConnections, clearLogsButton.OnUpdated:Connect(function()
             local logs = (currentSelectedType == "Call") and callLogs or otherLogs
             local lines = (currentSelectedType == "Call") and callLines or otherLines
             if currentSelectedRemote then
                 do -- updates front menu
-                    table.clear(logs[currentSelectedRemote].Calls)
+                    tableClear(logs[currentSelectedRemote].Calls)
                     lines[currentSelectedRemote][3].Label = "0"
                     if not logs[currentSelectedRemote].Ignored then
                         lines[currentSelectedRemote][2].Visible = false
@@ -1245,7 +1384,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     for _,v in argLines do
                         v[2]:Clear()
                     end
-                    table.clear(argLines)
+                    tableClear(argLines)
                     remoteViewerMainWindow:Clear()
                     addSpacer(remoteViewerMainWindow, 8)
                 end
@@ -1254,7 +1393,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         local copyPathButton = buttonBar:Button()
         copyPathButton.Label = "Copy Path"
-        table.insert(_G.remoteSpyGuiConnections, copyPathButton.OnUpdated:Connect(function()
+        tableInsert(_G.remoteSpyGuiConnections, copyPathButton.OnUpdated:Connect(function()
             if currentSelectedRemote then
                 local str = getInstancePath(currentSelectedRemote)
                 if type(str) == "string" then
@@ -1302,7 +1441,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     pushError("Failed to get Calling Script")
                 end
             end)
-            table.insert(_G.remoteSpyGuiConnections, con)
+            tableInsert(_G.remoteSpyGuiConnections, con)
         end
         return con
     end
@@ -1337,7 +1476,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     pushError("Failed to Decompile Calling Script")
                 end
             end)
-            table.insert(_G.remoteSpyGuiConnections, con)
+            tableInsert(_G.remoteSpyGuiConnections, con)
         end
         return con
     end
@@ -1414,7 +1553,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         amt = amt or 1
 
         local con = button.OnUpdated:Connect(function() repeatCall(call, remote, spyFunc, amt) end)
-        table.insert(_G.remoteSpyGuiConnections, con)
+        tableInsert(_G.remoteSpyGuiConnections, con)
         return con
     end
 
@@ -1434,7 +1573,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 pushError("Failed to Generate Pseudocode")
             end
         end)
-        table.insert(_G.remoteSpyGuiConnections, con)
+        tableInsert(_G.remoteSpyGuiConnections, con)
         return con
     end
 
@@ -1462,7 +1601,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     pushError("Failed to Generate Pseudocode")
                 end
             end)
-            table.insert(_G.remoteSpyGuiConnections, con)
+            tableInsert(_G.remoteSpyGuiConnections, con)
         end
         return con
     end
@@ -1495,7 +1634,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     pushError("Failed to Get Connection Scripts")
                 end
             end)
-            table.insert(_G.remoteSpyGuiConnections, con)
+            tableInsert(_G.remoteSpyGuiConnections, con)
         end
         return con
     end
@@ -1514,18 +1653,22 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             con = button.OnUpdated:Connect(function()
                 if not pcall(function()
                     local ret = call.ReturnValue
-                    if type(ret) == "table" then
-                        setclipboard(tableToString(ret, true))
-                        pushSuccess("Set Return Value to Clipboard")
+                    if ret.Args then
+                        if Settings.SendPseudocodeToExternal then
+                            createuitab("RS Return Value", genReturnValuePseudo(ret, spyFunc, Settings.PseudocodeWatermark == 2))
+                            pushSuccess("Generated Return Value to External UI")
+                        else
+                            setclipboard(genReturnValuePseudo(ret, spyFunc, Settings.PseudocodeWatermark == 3)) -- no pseudocode watermark when setting to clipboard
+                            pushSuccess("Generated Return Value to Clipboard")
+                        end
                     else
-                        setclipboard(toString(ret))
-                        pushSuccess("Set Return Value to Clipboard")
+                        pushError("Failed to Get Return Value")
                     end
                 end) then
                     pushError("Failed to Get Return Value")
                 end
             end)
-            table.insert(_G.remoteSpyGuiConnections, con)
+            tableInsert(_G.remoteSpyGuiConnections, con)
         end
         return con
     end
@@ -1550,7 +1693,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     pushError("Failed to get Callback Script")
                 end
             end)
-            table.insert(_G.remoteSpyGuiConnections, con)
+            tableInsert(_G.remoteSpyGuiConnections, con)
         end
         return con
     end
@@ -1585,7 +1728,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     pushError("Failed to Decompile Callback Script")
                 end
             end)
-            table.insert(_G.remoteSpyGuiConnections, con)
+            tableInsert(_G.remoteSpyGuiConnections, con)
         end
         return con
     end
@@ -1597,7 +1740,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local tempMain2 = tempMain:SameLine()
         local dummyMain = tempMain2:Dummy()
         local dummyMain2 = tempMain2:Dummy()
-        dummyMain:SetColor(RenderColorOption.ChildBg, Color3.fromRGB(25, 25, 28), 1)
+        dummyMain:SetColor(RenderColorOption.ChildBg, colorRGB(25, 25, 28), 1)
         dummyMain2:SetColor(RenderColorOption.ChildBg, black, 0)
         
         local childWindow = dummyMain:Indent(8):Child()
@@ -1658,9 +1801,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         temp:SetColor(RenderColorOption.ButtonHovered, black, 0)
         
         if call.FromSynapse then
-            temp:SetColor(RenderColorOption.Text, Color3.fromRGB(252, 86, 3), 1)
+            temp:SetColor(RenderColorOption.Text, colorRGB(252, 86, 3), 1)
         else
-            temp:SetColor(RenderColorOption.Text, Color3.fromRGB(51, 136, 255), 1)
+            temp:SetColor(RenderColorOption.Text, colorRGB(51, 136, 255), 1)
         end
 
         local fakeBtn = temp:Button()
@@ -1679,7 +1822,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
             local lineContents = temp2:Button()
             if totalArgCount == 0 then
-                argFrame:SetColor(RenderColorOption.Text, Color3.fromRGB(156, 0, 0), 1)
+                argFrame:SetColor(RenderColorOption.Text, colorRGB(156, 0, 0), 1)
                 lineContents.Label = spaces2 .. "nil"
             elseif #call.Args == 1 then
                 local text, color = getArgString(call.Args[1], call.Type)
@@ -1687,7 +1830,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 argFrame:SetColor(RenderColorOption.Text, color, 1)
             else
                 lineContents.Label = spaces2 .. "HIDDEN NIL"
-                argFrame:SetColor(RenderColorOption.Text, Color3.fromHSV(258/360, 0.8, 1), 1)
+                argFrame:SetColor(RenderColorOption.Text, colorHSV(258/360, 0.8, 1), 1)
             end
             lineContents.Size = Vector2.new(width-24-38-23, 24) -- 24 = left padding, 38 = right padding, and no scrollbar
 
@@ -1696,7 +1839,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             argFrame:SetColor(RenderColorOption.ButtonHovered, black, 0)
             argFrame:SetColor(RenderColorOption.Button, black, 0)
             temp:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(1, 0.5))
-            temp:SetColor(RenderColorOption.Text, Color3.fromHSV(179/360, 0.8, 1), 1)
+            temp:SetColor(RenderColorOption.Text, colorHSV(179/360, 0.8, 1), 1)
 
             local lineNum = temp:Indent(-7):Button()
             lineNum.Label = "1"
@@ -1730,7 +1873,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 argFrame:SetColor(RenderColorOption.ButtonHovered, black, 0)
                 argFrame:SetColor(RenderColorOption.Button, black, 0)
                 temp:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(1, 0.5))
-                temp:SetColor(RenderColorOption.Text, Color3.fromHSV(179/360, 0.8, 1), 1)
+                temp:SetColor(RenderColorOption.Text, colorHSV(179/360, 0.8, 1), 1)
 
                 local lineNum = firstLine and temp:Indent(-7):Button() or temp:Indent(1):Button()
                 lineNum.Label = tostring(i)
@@ -1749,7 +1892,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
                 local lineContents = temp2:Indent(8):Button()
                 lineContents.Label = spaces2 .. "HIDDEN NIL"
-                argFrame:SetColor(RenderColorOption.Text, Color3.fromHSV(258/360, 0.8, 1), 1)
+                argFrame:SetColor(RenderColorOption.Text, colorHSV(258/360, 0.8, 1), 1)
                 if totalArgCount < 10 then
                     lineContents.Size = Vector2.new(width-24-38, 24) -- 24 = left padding + indent, 38 = right padding (no scrollbar) 
                 else
@@ -1761,7 +1904,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 argFrame:SetColor(RenderColorOption.ButtonHovered, black, 0)
                 argFrame:SetColor(RenderColorOption.Button, black, 0)
                 temp:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(1, 0.5))
-                temp:SetColor(RenderColorOption.Text, Color3.fromHSV(179/360, 0.8, 1), 1)
+                temp:SetColor(RenderColorOption.Text, colorHSV(179/360, 0.8, 1), 1)
 
                 local lineNum = temp:Indent(1):Button()
                 lineNum.Label = tostring(i + #call.Args)
@@ -1772,7 +1915,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
 
         addSpacer(tempMain, 4)
-        table.insert(argLines, { tempMain, pop })
+        tableInsert(argLines, { tempMain, pop })
     end
 
     local function loadRemote(remote, data)
@@ -1804,17 +1947,17 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     searchBarFrame.Size = Vector2.new(frameWidth, 24)
     searchBarFrame:SetColor(RenderColorOption.ChildBg, black, 0)
     searchBar = searchBarFrame:Indent(0.35*frameWidth):TextBox() -- localized earlier
-    table.insert(_G.remoteSpyGuiConnections, searchBar.OnUpdated:Connect(filterLines))
+    tableInsert(_G.remoteSpyGuiConnections, searchBar.OnUpdated:Connect(filterLines))
     
     local searchButton = topBar:Button()
     searchButton.Label = "Search"
-    table.insert(_G.remoteSpyGuiConnections, searchButton.OnUpdated:Connect(function()
+    tableInsert(_G.remoteSpyGuiConnections, searchButton.OnUpdated:Connect(function()
         filterLines(searchBar.Value) -- redundant because i did it above but /shrug
     end))
 
     local clearButton = topBar:Button()
     clearButton.Label = "Reset"
-    table.insert(_G.remoteSpyGuiConnections, clearButton.OnUpdated:Connect(function()
+    tableInsert(_G.remoteSpyGuiConnections, clearButton.OnUpdated:Connect(function()
         searchBar.Value = ""
         clearFilter()
     end))
@@ -1823,15 +1966,15 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local clearAllLogsButton = topBar:Button()
     clearAllLogsButton.Label = "Clear All Logs"
-    table.insert(_G.remoteSpyGuiConnections, clearAllLogsButton.OnUpdated:Connect(function()
-        table.clear(callLines)
-        table.clear(otherLines)
-        for i,v in callLogs do
-            table.clear(v.Calls)
+    tableInsert(_G.remoteSpyGuiConnections, clearAllLogsButton.OnUpdated:Connect(function()
+        tableClear(callLines)
+        tableClear(otherLines)
+        for _,v in callLogs do
+            tableClear(v.Calls)
         end
 
-        for i,v in otherLogs do
-            table.clear(v.Calls)
+        for _,v in otherLogs do
+            tableClear(v.Calls)
         end
         childWindow:Clear()
         addSpacer(childWindow, 8)
@@ -1847,14 +1990,14 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local settingsButton = topRightBar:Button()
     settingsButton.Label = "\xef\x80\x93"
     settingsButton.Size = Vector2.new(24, 24)
-    table.insert(_G.remoteSpyGuiConnections, settingsButton.OnUpdated:Connect(function()
+    tableInsert(_G.remoteSpyGuiConnections, settingsButton.OnUpdated:Connect(function()
         settingsWindow.Visible = not settingsWindow.Visible
     end))
 
     local exitButton = topRightBar:Button()
     exitButton.Label = "\xef\x80\x91"
     exitButton.Size = Vector2.new(24, 24)
-    table.insert(_G.remoteSpyGuiConnections, exitButton.OnUpdated:Connect(function()
+    tableInsert(_G.remoteSpyGuiConnections, exitButton.OnUpdated:Connect(function()
         if messagebox("Are you sure you want to Close/Disconnect the RemoteSpy?  You can reexecute later.", "Warning", 4) == 6 then
             cleanUpSpy()
         end
@@ -1880,7 +2023,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         btn.Label = v.Icon
         btn.Value = v.Enabled
         v.Button = btn
-        table.insert(_G.remoteSpyGuiConnections, btn.OnUpdated:Connect(function(enabled)
+        tableInsert(_G.remoteSpyGuiConnections, btn.OnUpdated:Connect(function(enabled)
             v.Enabled = enabled
             Settings[v.Name] = enabled
             updateLines(v.Name, enabled)
@@ -1912,7 +2055,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 pushError("Failed to Copy Path")
             end
         end)
-        table.insert(_G.remoteSpyGuiConnections, con)
+        tableInsert(_G.remoteSpyGuiConnections, con)
         return con
     end
 
@@ -1924,14 +2067,14 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local logs = (method == "Call") and callLogs or otherLogs
 
         local con = clearLogsButton.OnUpdated:Connect(function()
-            table.clear(logs[remote].Calls)
+            tableClear(logs[remote].Calls)
             lines[remote][3].Label = "0"
             if not logs[remote].Ignored then
                 lines[remote][2].Visible = false
                 lines[remote][4].Visible = false
             end
         end)
-        table.insert(_G.remoteSpyGuiConnections, con)
+        tableInsert(_G.remoteSpyGuiConnections, con)
         return con
     end
 
@@ -1965,7 +2108,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 spoofLine:SetColor(RenderColorOption.Text, green, 1)
             end
         end)
-        table.insert(_G.remoteSpyGuiConnections, con)
+        tableInsert(_G.remoteSpyGuiConnections, con)
         return con
     end
 
@@ -1999,7 +2142,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 blockButton.Label = "Unblock"
             end
         end)
-        table.insert(_G.remoteSpyGuiConnections, con)
+        tableInsert(_G.remoteSpyGuiConnections, con)
         return con
     end
 
@@ -2020,7 +2163,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         local temp = childWindow:Dummy():Indent(8)
         temp:SetStyle(RenderStyleOption.ItemSpacing, Vector2.new(4, 0))
-        temp:SetColor(RenderColorOption.ChildBg, Color3.fromRGB(25, 25, 28), 1)
+        temp:SetColor(RenderColorOption.ChildBg, colorRGB(25, 25, 28), 1)
         temp:SetStyle(RenderStyleOption.SelectableTextAlign, Vector2.new(0, 0.5))
 
         local line = {}
@@ -2038,7 +2181,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local con = remoteButton.OnUpdated:Connect(function()
             loadRemote(remote, data)
         end)
-        table.insert(_G.remoteSpyGuiConnections, con)
+        tableInsert(_G.remoteSpyGuiConnections, con)
         line[5] = { con }
 
         addSpacer(sameButtonLine, 3)
@@ -2049,7 +2192,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         cloneLine:Label(spyFunc.Icon)
         
         local cloneLine2 = sameButtonLine:SameLine()
-        cloneLine2:SetColor(RenderColorOption.Text, Color3.fromHSV(179/360, 0.8, 1), 1)
+        cloneLine2:SetColor(RenderColorOption.Text, colorHSV(179/360, 0.8, 1), 1)
 
         local callAmt = #log.Calls
         local callStr = (callAmt < 1000 and tostring(callAmt)) or "999+"
@@ -2057,10 +2200,10 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         local ind = sameButtonLine:Indent(width-333)
         
-        table.insert(line[5], makeCopyPathButton(ind, remote))
-        table.insert(line[5], makeClearLogsButton(sameButtonLine, remote, method))
-        table.insert(line[5], makeIgnoreButton(sameButtonLine, remote, method))
-        table.insert(line[5], makeBlockButton(sameButtonLine, remote, method))
+        tableInsert(line[5], makeCopyPathButton(ind, remote))
+        tableInsert(line[5], makeClearLogsButton(sameButtonLine, remote, method))
+        tableInsert(line[5], makeIgnoreButton(sameButtonLine, remote, method))
+        tableInsert(line[5], makeBlockButton(sameButtonLine, remote, method))
 
         line[4] = addSpacer(childWindow, 4)
         line[4].Visible = spyFunc.Enabled
@@ -2083,7 +2226,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             log = otherLogs[remote]
         end
         
-        table.insert(log.Calls, data)
+        tableInsert(log.Calls, data)
 
         if Settings.CacheLimit then
             local callCount = (#log.Calls-Settings.MaxCallAmount)
@@ -2093,9 +2236,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                         argLines[1][2]:Clear()
                         argLines[1][1]:Clear()
                         argLines[1][1].Visible = false
-                        table.remove(argLines, 1)
+                        tableRemove(argLines, 1)
                     end
-                    table.remove(log.Calls, 1)
+                    tableRemove(log.Calls, 1)
                 end
             end
         end
@@ -2117,7 +2260,20 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
     end
 
-    local function addCall(remote, retVal, spyFunc, ...)
+    local function processReturnValue(refTable, ...)
+        local args = shallowClone({...}, nil, -1)
+        if args then
+            refTable.Args = args
+            refTable.NilCount = (select("#", args) - #args)
+        else
+            refTable.Args = false
+            pushError("Return Value Shallow Clone Returned False")
+        end
+
+        return ...
+    end
+
+    local function addCall(remote, returnValue, spyFunc, ...)
         if not callLogs[remote] then
             callLogs[remote] = {
                 Blocked = false,
@@ -2128,10 +2284,10 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         if not callLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
 
-            local args, tableDepth = shallowClone({...}, nil, -1) -- 1 deeper total
+            local args, tableDepth, hasTable = shallowClone({...}, nil, -1) -- 1 deeper total
             local argCount = select("#", ...)
 
-            if not args or #args > 7995 or (argCount-1 + tableDepth) >= 299 then
+            if not args or (hasTable and argCount > 7995 or argCount > 7996) or (tableDepth > 0 and ((argCount + tableDepth) > 298)) then
                 return
             end
 
@@ -2144,7 +2300,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 TypeIndex = idxs[spyFunc.Name],
                 Script = callingScript[1],
                 Args = args, -- 2 deeper total
-                ReturnValue = retVal,
+                ReturnValue = returnValue,
                 NilCount = (argCount - #args),
                 FromSynapse = callingScript[2]
             }
@@ -2166,7 +2322,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             local curFunc = otherLogs[remote].CurrentFunction
             for i,v in _G.remoteSpyCallbackHooks do
                 if v == curFunc then
-                    table.remove(_G.remoteSpyCallbackHooks, i)
+                    tableRemove(_G.remoteSpyCallbackHooks, i)
                     break
                 end
             end
@@ -2177,36 +2333,48 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         if func then
             local oldfunc
             oldfunc = hookfunction(func, function(...)
-                local retVal = (not otherLogs[remote].Blocked) and oldfunc(...) -- can't get return val if blocked
-                deferFunc(deferFunc, function(...)
-                    local spyFunc = spyFunctions[idxs[method]]
+                local spyFunc = spyFunctions[idxs[method]]
+                local args = shallowClone({...}, nil, -1)
+                local argCount = select("#", ...)
+
+                local callingScript = otherCheckCaller[remote] or {nil, checkcaller()}
+
+                otherCheckCaller[remote] = nil
+
+                local data = {
+                    TypeIndex = idxs[method],
+                    CallbackScript = getcallingscript(),
+                    Script = callingScript[1],
+                    Args = args, -- 2 deeper total
+                    CallbackLog = otherLogs[remote],
+                    NilCount = (argCount - #args),
+                    FromSynapse = callingScript[2]
+                }
+
+                if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then 
+                    local returnValue = {}
+                    deferFunc(function()
+                        if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                            data.ReturnValue = returnValue
+
+                            sendLog(remote, data)
+                        end
+                    end)
+
+                    return processReturnValue(returnValue, oldfunc(...))
+                end
+            
+                if otherLogs[remote] and otherLogs[remote].Blocked then return end
+
+                deferFunc(function(...)
                     if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-
-                        local args = shallowClone({...}, nil, -1)
-                        local argCount = select("#", ...)
-
-                        local callingScript = otherCheckCaller[remote] or {nil, checkcaller()}
-
-                        otherCheckCaller[remote] = nil
-
-                        local data = {
-                            TypeIndex = idxs[method],
-                            CallbackScript = getcallingscript(),
-                            Script = callingScript[1],
-                            Args = args, -- 2 deeper total
-                            CallbackLog = otherLogs[remote],
-                            NilCount = (argCount - #args),
-                            ReturnValue = retVal,
-                            FromSynapse = callingScript[2]
-                        }
-
                         sendLog(remote, data)
                     end
                 end, ...)
 
-                return retVal
+                return oldfunc(...)
             end)
-            table.insert(_G.remoteSpyCallbackHooks, func)
+            tableInsert(_G.remoteSpyCallbackHooks, func)
         end
     end
 
@@ -2226,11 +2394,11 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     local spyFunc = spyFunctions[idxs[signalType]]
                     if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
                         if info.Index == 0 then
-                            table.clear(connectionCache)
-                            table.clear(scriptCache)
+                            tableClear(connectionCache)
+                            tableClear(scriptCache)
                         end
 
-                        table.insert(connectionCache, info.Connection)
+                        tableInsert(connectionCache, info.Connection)
                         local CS = getcallingscript()
                         if CS then
                             if scriptCache[CS] then
@@ -2269,7 +2437,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
                 return true, ...
             end)
-            table.insert(_G.remoteSpySignalHooks, signal)
+            tableInsert(_G.remoteSpySignalHooks, signal)
         end
     end
 
@@ -2281,7 +2449,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         for _,v in spyFunctions do
             if v.Type == "Callback" then
-                table.insert(newIndexFilters, AllFilter.new({
+                tableInsert(newIndexFilters, AllFilter.new({
                     AnyFilter.new({
                         InstanceTypeFilter.new(1, v.Object),
                         ArgumentFilter.new(1, nil)
@@ -2293,7 +2461,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     TypeFilter.new(3, "function")
                 }))
             elseif v.Type == "Call" then
-                table.insert(namecallFilters, AllFilter.new({
+                tableInsert(namecallFilters, AllFilter.new({
                     InstanceTypeFilter.new(1, v.Object),
                     AnyFilter.new({
                         NamecallFilter.new(v.Method),
@@ -2301,7 +2469,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     })
                 }))
             elseif v.Type == "Connection" then
-                table.insert(indexFilters, AllFilter.new({
+                tableInsert(indexFilters, AllFilter.new({
                     InstanceTypeFilter.new(1, v.Object),
                     AnyFilter.new({
                         ArgumentFilter.new(2, v.Connection),
@@ -2398,22 +2566,25 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
         -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
 
-        local returnValue = spyFunc.ReturnsValue and oldNamecall(remote, ...)
+        if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
+            local returnValue = {}
+            deferFunc(function(...)
+                --repeat taskWait() until returnValue.Args
 
-        deferFunc(addCall, remote, returnValue, spyFunc, ...)
+                addCall(remote, returnValue, spyFunc, ...)
+            end, ...) -- I could rewrite the entire system to not need a second thread, but the issue is that then I would need to encorporate all data collection into that function, and essentially make the entire function run on what is currently a new thread, rather than having a new thread running separately from the entire function.
+            return processReturnValue(returnValue, oldNamecall(remote, ...))
+        end
 
-        --addCall(remote, returnValue, spyFunc, ...)
+        deferFunc(addCall, remote, nil, spyFunc, ...)
+        --addCall(remote, nil, spyFunc, ...)
     
         if callLogs[remote] and callLogs[remote].Blocked then return end
 
-        if spyFunc.ReturnsValue then
-            return returnValue
-        else
-            return oldNamecall(remote, ...)
-        end
+        return oldNamecall(remote, ...)
     end), AnyFilter.new(namecallFilters))
 
-    for i,v in spyFunctions do
+    for _,v in spyFunctions do
         if v.Type == "Call" then
 
             local oldFunc
@@ -2424,18 +2595,21 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     otherCheckCaller[remote] = otherCheckCaller[remote] or {(not caller and getcallingscript()), caller}
                 end
 
-                local returnValue = spyFunc.ReturnsValue and oldFunc(remote, ...)
-
-                deferFunc(addCall, remote, returnValue, spyFunc, ...)
-                --addCall(remote, returnValue, spyFunc, ...)
-
-                if not callLogs[remote] or not callLogs[remote].Blocked then
-                    if spyFunc.ReturnsValue then
-                        return returnValue
-                    else
-                        return oldFunc(remote, ...)
-                    end
+                if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
+                    local returnValue = {}
+                    deferFunc(function(...)
+                        
+                        addCall(remote, returnValue, spyFunc, ...)
+                    end, ...)
+                    return processReturnValue(returnValue, oldNamecall(remote, ...))
                 end
+
+                deferFunc(addCall, remote, nil, spyFunc, ...)
+                --addCall(remote, nil, spyFunc, ...)
+            
+                if callLogs[remote] and callLogs[remote].Blocked then return end
+
+                return oldFunc(remote, ...)
             end
 
             oldFunc = hookfunction(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object))

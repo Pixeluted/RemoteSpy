@@ -169,7 +169,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
 
         for i,v in next, myTable do
-            if type(v) == "table" then
+            local primType = type(v)
+            if primType == "table" then
                 hasTable = true
 
                 local newTab, maxStack = shallowClone(v, stack)
@@ -180,12 +181,17 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 else
                     return false, stack -- stack overflow
                 end
-            else
-                if typeof(v) == "Instance" then
+            elseif primType == "userdata" then
+                local mainType = typeof(v)
+                if mainType == "Instance" then
                     newTable[i] = cloneref(v)
+                elseif mainType == "userdata" then -- newproxy()
+                    newTable[i] = nil
                 else
                     newTable[i] = v
                 end
+            else
+                newTable[i] = v
             end
         end
 
@@ -2598,7 +2604,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
                     if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
                         local returnValue = {}
-                        deferFunc(function(...)
+                        deferFunc(function(...) -- defers until after processReturnValue runs and sets returnValue
                             
                             addCall(remote, returnValue, spyFunc, ...)
                         end, ...)

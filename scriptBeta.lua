@@ -2271,7 +2271,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local args = shallowClone({...}, nil, -1)
         if args then
             refTable.Args = args
-            refTable.NilCount = (select("#", args) - #args)
+            refTable.NilCount = (select("#", ...) - #args)
         else
             refTable.Args = false
             pushError("Return Value Shallow Clone Returned False")

@@ -278,6 +278,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local gameId, workspaceId = game:GetDebugId(), workspace:GetDebugId()
     
     local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
+        if not instance then return "NIL INSTANCE" end
         local name = instance.Name
         local head = (#name > 0 and '.' .. name) or "['']"
         
@@ -1925,7 +1926,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         remotePage.Visible = true
         currentSelectedRemote = remote
         currentSelectedType = funcInfo.Type
-        remotePageObjects.Name.Label = purifyString(remote.Name)
+        remotePageObjects.Name.Label = remote and purifyString(remote.Name) or "NIL REMOTE"
         remotePageObjects.Icon.Label = funcInfo.Icon
         remotePageObjects.IconFrame:SetColor(RenderColorOption.Text, funcInfo.Color, 1)
         remotePageObjects.IgnoreButton.Label = (logs[remote].Ignored and "Unignore") or "Ignore"
@@ -2176,7 +2177,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         sameButtonLine = sameButtonLine:SameLine()
 
         local remoteButton = sameButtonLine:Indent(6):Selectable()
-        remoteButton.Label = spaces .. purifyString(remote.Name, false) 
+        remoteButton.Label = spaces .. (remote and purifyString(remote.Name, false) or "NIL REMOTE")
         remoteButton.Size = Vector2.new(width-327-4-14, 24)
         local con = remoteButton.OnUpdated:Connect(function()
             loadRemote(remote, data)
@@ -2555,66 +2556,67 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
         end
     end
+    do -- namecall and function hooks
+        local oldNamecall
+        oldNamecall = newHookMetamethod(game, "__namecall", newcclosure(function(remote, ...)
+            local spyFunc = spyFunctions[idxs[getnamecallmethod()]]
 
-    local oldNamecall
-    oldNamecall = newHookMetamethod(game, "__namecall", newcclosure(function(remote, ...)
-        local spyFunc = spyFunctions[idxs[getnamecallmethod()]]
+            if spyFunc.Type == "Call" and spyFunc.FiresLocally then
+                local caller = checkcaller()
+                otherCheckCaller[remote] = otherCheckCaller[remote] or {(not caller and getcallingscript()), caller}
+            end
+            -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
 
-        if spyFunc.Type == "Call" and spyFunc.FiresLocally then
-            local caller = checkcaller()
-            otherCheckCaller[remote] = otherCheckCaller[remote] or {(not caller and getcallingscript()), caller}
-        end
-        -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
+            if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
+                local returnValue = {}
+                deferFunc(function(...)
+                    --repeat taskWait() until returnValue.Args
 
-        if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-            local returnValue = {}
-            deferFunc(function(...)
-                --repeat taskWait() until returnValue.Args
-
-                addCall(remote, returnValue, spyFunc, ...)
-            end, ...) -- I could rewrite the entire system to not need a second thread, but the issue is that then I would need to encorporate all data collection into that function, and essentially make the entire function run on what is currently a new thread, rather than having a new thread running separately from the entire function.
-            return processReturnValue(returnValue, oldNamecall(remote, ...))
-        end
-
-        deferFunc(addCall, remote, nil, spyFunc, ...)
-        --addCall(remote, nil, spyFunc, ...)
-    
-        if callLogs[remote] and callLogs[remote].Blocked then return end
-
-        return oldNamecall(remote, ...)
-    end), AnyFilter.new(namecallFilters))
-
-    for _,v in spyFunctions do
-        if v.Type == "Call" then
-
-            local oldFunc
-            local newfunction = function(remote, ...)
-                local spyFunc = v
-                if spyFunc.Type == "Call" and spyFunc.FiresLocally then
-                    local caller = checkcaller()
-                    otherCheckCaller[remote] = otherCheckCaller[remote] or {(not caller and getcallingscript()), caller}
-                end
-
-                if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-                    local returnValue = {}
-                    deferFunc(function(...)
-                        
-                        addCall(remote, returnValue, spyFunc, ...)
-                    end, ...)
-                    return processReturnValue(returnValue, oldNamecall(remote, ...))
-                end
-
-                deferFunc(addCall, remote, nil, spyFunc, ...)
-                --addCall(remote, nil, spyFunc, ...)
-            
-                if callLogs[remote] and callLogs[remote].Blocked then return end
-
-                return oldFunc(remote, ...)
+                    addCall(remote, returnValue, spyFunc, ...)
+                end, ...) -- I could rewrite the entire system to not need a second thread, but the issue is that then I would need to encorporate all data collection into that function, and essentially make the entire function run on what is currently a new thread, rather than having a new thread running separately from the entire function.
+                return processReturnValue(returnValue, oldNamecall(remote, ...))
             end
 
-            oldFunc = hookfunction(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object))
+            deferFunc(addCall, remote, nil, spyFunc, ...)
+            --addCall(remote, nil, spyFunc, ...)
+        
+            if callLogs[remote] and callLogs[remote].Blocked then return end
 
-            v.Function = newfunction
+            return oldNamecall(remote, ...)
+        end), AnyFilter.new(namecallFilters))
+
+        for _,v in spyFunctions do
+            if v.Type == "Call" then
+
+                local oldFunc
+                local newfunction = function(remote, ...)
+                    local spyFunc = v
+                    if spyFunc.Type == "Call" and spyFunc.FiresLocally then
+                        local caller = checkcaller()
+                        otherCheckCaller[remote] = otherCheckCaller[remote] or {(not caller and getcallingscript()), caller}
+                    end
+
+                    if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
+                        local returnValue = {}
+                        deferFunc(function(...)
+                            
+                            addCall(remote, returnValue, spyFunc, ...)
+                        end, ...)
+                        return processReturnValue(returnValue, oldNamecall(remote, ...))
+                    end
+
+                    deferFunc(addCall, remote, nil, spyFunc, ...)
+                    --addCall(remote, nil, spyFunc, ...)
+                
+                    if callLogs[remote] and callLogs[remote].Blocked then return end
+
+                    return oldFunc(remote, ...)
+                end
+
+                oldFunc = hookfunction(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object))
+
+                v.Function = newfunction
+            end
         end
     end
 else

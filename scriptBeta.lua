@@ -1,7 +1,6 @@
 -- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW FORKED TOSTRING FUNCTIONS
 
 -- TO DO:
-    -- Can't scroll args when hovering over arg button cause of focus loss (Need to rework the entire way clicking args works)
     -- Make main window remote list use popups (depends on OnRightClick)
     -- Make arg list use right click (depends on defcon)
 
@@ -58,6 +57,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         OnClientInvoke = false,
         OnEvent = false,
         OnInvoke = false,
+
+        Paused = false,
 
         CallbackButtons = false,
         DecompileScriptsToExternal = false,
@@ -407,35 +408,48 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             root = root or data
 
             local head = format and '{\n' or '{ '
-            local elements = 0
             local indent = rep('\t', indents)
+            local orderedNumbers = (#table.pack(ipairs(data))[2] ~= 0)
+            local elements = 0
             -- moved checkCyclic check to hook
             if format then
-                for i,v in data do
-                    elements += 1
-
-                    if type(i) == "number" and elements == i then -- table will either use all numbers, or mixed between non numbers
+                if orderedNumbers then
+                    for i,v in data do
+                        if i ~= (elements + 1) then
+                            for newIndex = elements+1, (i-1) do
+                                head ..= strformat("%s%s,\n", indent, "nil")
+                            end
+                        end
                         head ..= strformat("%s%s,\n", indent, tableToString(v, true, root, indents + 1))
-                    else
+                        elements = i
+                    end
+                else
+                    for i,v in data do
                         head ..= strformat("%s[%s] = %s,\n", indent, tableToString(i, true, root, indents + 1), tableToString(v, true, root, indents + 1))
                     end
                 end
             else
-                for i,v in data do
-                    elements += 1
-
-                    if type(i) == "number" and elements == i then -- table will either use all numbers, or mixed between non numbers
+                if orderedNumbers then
+                    for i,v in data do
+                        if i ~= (elements + 1) then
+                            for newIndex = elements+1, (i-1) do
+                                head ..= strformat("%s%s,\n", indent, "nil")
+                            end
+                        end
                         head ..= strformat("%s, ", tableToString(v, false, root, indents + 1))
-                    else
+                        elements = i
+                    end
+                else
+                    for i,v in data do
                         head ..= strformat("[%s] = %s, ", tableToString(i, false, root, indents + 1), tableToString(v, false, root, indents + 1))
                     end
                 end
             end
             
             if format then
-                return elements > 0 and strformat("%s\n%s", sub(head, 1, -3), rep('\t', indents - 1) .. '}') or "{}"
+                return #data > 0 and strformat("%s\n%s", sub(head, 1, -3), rep('\t', indents - 1) .. '}') or "{}"
             else
-                return elements > 0 and (sub(head, 1, -3) .. ' }') or "{}"
+                return #data > 0 and (sub(head, 1, -3) .. ' }') or "{}"
             end
         elseif dataType == "function" and (call.Type == "BindableEvent" or call.Type == "BindableFunction") then -- functions are only receivable through bindables, not remotes
             varConstructor = 'nil -- "' .. tostring(data) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
@@ -677,9 +691,10 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 end -- dont bother listing threads because they can never be sent
 
                 if primTyp == "nil" then
+                    tableInsert(argCalls, { typ, primTyp, "", "" })
                     continue
                 end
-
+                
                 local varPrefix = ""
                 if primTyp ~= "function" and Settings.PseudocodeLuaUTypes then
                     varPrefix = "local " .. varName .. ": ".. tempTyp .." = "
@@ -1350,6 +1365,10 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 funcList[currentSelectedRemote].UpdateIgnores()
             end
         end))
+        --[[buttonBar = buttonBar:SameLine()
+        buttonBar:SetColor(RenderColorOption.Button, colorRGB(25, 25, 28), 1)
+        buttonBar:SetColor(RenderColorOption.ButtonHovered, colorRGB(55, 55, 58), 1)
+        buttonBar:SetColor(RenderColorOption.ButtonActive, colorRGB(75, 75, 78), 1)]]
 
         local blockButtonFrame = buttonBar:Dummy()
         blockButtonFrame:SetColor(RenderColorOption.Text, red, 1)
@@ -1568,7 +1587,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local button = window:Selectable()
         button.Label = "Generate Calling Pseudocode"
         local con = button.OnUpdated:Connect(function()
-            if not pcall(function()
+            if not warn(pcall(function()
                 if Settings.SendPseudocodeToExternal then
                     createuitab("RS Pseudocode", genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 2))
                     pushSuccess("Generated Pseudocode to External UI")
@@ -1576,7 +1595,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     setclipboard(genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 3)) -- no pseudocode watermark when setting to clipboard
                     pushSuccess("Generated Pseudocode to Clipboard")
                 end
-            end) then
+            end)) then
                 pushError("Failed to Generate Pseudocode")
             end
         end)
@@ -1743,18 +1762,11 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local function makeRemoteViewerLog(call, remote)
         local totalArgCount = #call.Args + call.NilCount
         local spyFunc = spyFunctions[call.TypeIndex]
-        local tempMain = remoteViewerMainWindow:Dummy()
-        local tempMain2 = tempMain:SameLine()
-        local dummyMain = tempMain2:Dummy()
-        local dummyMain2 = tempMain2:Dummy()
-        dummyMain:SetColor(RenderColorOption.ChildBg, colorRGB(25, 25, 28), 1)
-        dummyMain2:SetColor(RenderColorOption.ChildBg, black, 0)
+        local tempMainDummy = remoteViewerMainWindow:Dummy()
+        local tempMain = tempMainDummy:SameLine()
+        tempMain:SetColor(RenderColorOption.ChildBg, colorRGB(25, 25, 28), 1)
         
-        local childWindow = dummyMain:Indent(8):Child()
-        local secondChild = dummyMain2:Indent(8):Child()
-        secondChild:SetColor(RenderColorOption.Button, black, 0)
-        secondChild:SetColor(RenderColorOption.ButtonActive, white, 0)
-        secondChild:SetColor(RenderColorOption.ButtonHovered, white, 0)
+        local childWindow = tempMain:Indent(8):Child()
 
         if totalArgCount < 2 then
             childWindow.Size = Vector2.new(width-46, 24 + 16) -- 2 lines (top line = 24) + 2x (8px) spacers  | -46 because 16 padding on each side, plus 14 wide scrollbar
@@ -1764,7 +1776,6 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             childWindow.Size = Vector2.new(width-46, (10 * 28) - 4 + 16)
         end
 
-        local mainButton = secondChild:Button()
         local pop = mainWindow:Popup()
 
         createGetRetValButton(pop, call, spyFunc)
@@ -1790,12 +1801,6 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             createRepeatCallButton(pop, call, remote, spyFunc)
         end
 
-        local con = mainButton.OnUpdated:Connect(function()
-            pop:Show()
-        end)
-        mainButton.Size = Vector2.new(childWindow.Size.X - 18, childWindow.Size.Y)
-        secondChild.Size = Vector2.new(childWindow.Size.X - 18, childWindow.Size.Y)
-
         local textFrame = childWindow:Dummy()
 
         addSpacer(textFrame, 8)
@@ -1816,18 +1821,27 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local fakeBtn = temp:Button()
         fakeBtn.Label = "\xef\x87\x89"
 
-        local firstArgFrame = indentFrame:Indent(27)
+        local firstArgFrame = indentFrame:Indent(28):SameLine() -- 1 extra cause -1 later
 
         if totalArgCount == 0 or totalArgCount == 1 then
             local argFrame = firstArgFrame:SameLine()
 
-            local temp2 = argFrame:SameLine()
+            local topLine = argFrame:SameLine():Indent(8)
+            topLine:SetColor(RenderColorOption.Button, black, 0)
+            topLine:SetColor(RenderColorOption.ButtonActive, white, 0)
+            topLine:SetColor(RenderColorOption.ButtonHovered, white, 0)
+            local mainButton = topLine:Button()
+            local con = mainButton.OnUpdated:Connect(function()
+                pop:Show()
+            end)
+
+            local temp2 = argFrame:SameLine():Indent(1)
             temp2:SetColor(RenderColorOption.ButtonActive, colorOptions.FrameBg[1], 1)
             temp2:SetColor(RenderColorOption.ButtonHovered, colorOptions.FrameBg[1], 1)
             temp2:SetColor(RenderColorOption.Button, colorOptions.FrameBg[1], 1)
             temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
 
-            local lineContents = temp2:Button()
+            local lineContents = temp2:Indent(-1):Button()
             if totalArgCount == 0 then
                 argFrame:SetColor(RenderColorOption.Text, colorRGB(156, 0, 0), 1)
                 lineContents.Label = spaces2 .. "nil"
@@ -1840,6 +1854,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 argFrame:SetColor(RenderColorOption.Text, colorHSV(258/360, 0.8, 1), 1)
             end
             lineContents.Size = Vector2.new(width-24-38-23, 24) -- 24 = left padding, 38 = right padding, and no scrollbar
+            mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y+4)
 
             local temp = argFrame:SameLine()
             argFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
@@ -1852,28 +1867,42 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             lineNum.Label = "1"
             lineNum.Size = Vector2.new(32, 24)
         else
+            local normalSize = Vector2.new(width-24-38, 24)-- 24 = left padding + indent, 38 = right padding (no scrollbar) 
+            local normalFirstSize = Vector2.new(width-24-38-23, 24)
+            local scrollSize = Vector2.new(width-24-38-14, 24) -- 14 = scrollbar width, plus read above
+            local scrollFirstSize = Vector2.new(width-24-38-14-23, 24)
             for i = 1, #call.Args do
                 local x = call.Args[i]
 
                 local firstLine = (i == 1)
-                local argFrame = (firstLine and firstArgFrame:SameLine()) or childWindow:SameLine()
+                local argFrame = ((firstLine and firstArgFrame:Indent(1)) or childWindow):SameLine()
 
-                local temp2 = argFrame:SameLine()
+                local topLine = firstLine and argFrame:SameLine():Indent(-1) or argFrame:SameLine():Indent(8)
+                topLine:SetColor(RenderColorOption.Button, black, 0)
+                topLine:SetColor(RenderColorOption.ButtonActive, white, 0)
+                topLine:SetColor(RenderColorOption.ButtonHovered, white, 0)
+                local mainButton = topLine:Button()
+                local con = mainButton.OnUpdated:Connect(function()
+                    pop:Show()
+                end)
+
+                local temp2 = argFrame:SameLine():Indent(-1)
                 temp2:SetColor(RenderColorOption.ButtonActive, colorOptions.FrameBg[1], 1)
                 temp2:SetColor(RenderColorOption.ButtonHovered, colorOptions.FrameBg[1], 1)
                 temp2:SetColor(RenderColorOption.Button, colorOptions.FrameBg[1], 1)
                 temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
                 
-                local lineContents = firstLine and temp2:Button() or temp2:Indent(8):Button()
+                local lineContents = firstLine and temp2:Indent(-1):Button() or temp2:Indent(8):Button()
                 local text, color
                 text, color = getArgString(x, call.Type)
                 lineContents.Label = spaces2 .. text
                 argFrame:SetColor(RenderColorOption.Text, color, 1)
                 if totalArgCount < 10 then
-                    lineContents.Size = firstLine and Vector2.new(width-24-38-23, 24) or Vector2.new(width-24-38, 24) -- 24 = left padding + indent, 38 = right padding (no scrollbar) 
+                    lineContents.Size = firstLine and normalFirstSize or normalSize 
                 else
-                    lineContents.Size = firstLine and Vector2.new(width-24-38-14-23, 24) or Vector2.new(width-24-38-14, 24) -- 14 = scrollbar width, plus read above
+                    lineContents.Size = firstLine and scrollFirstSize or scrollSize
                 end
+                mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y+4)
 
                 local temp = argFrame:SameLine()
                 argFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
@@ -1886,10 +1915,20 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 lineNum.Label = tostring(i)
                 lineNum.Size = Vector2.new(32, 24)
 
-                addSpacer(childWindow, 4)
+                --addSpacer(childWindow, 4)
             end
             for i = 1, call.NilCount do
-                local argFrame = ((i ~= 1 or #call.Args > 0) and childWindow:SameLine()) or firstArgFrame:SameLine()
+                local firstLine = (i == 1 and #call.Args == 0)
+                local argFrame = (firstLine and firstArgFrame:SameLine()) or childWindow:SameLine()
+
+                local topLine = argFrame:Dummy():Indent(8)
+                topLine:SetColor(RenderColorOption.Button, black, 0)
+                topLine:SetColor(RenderColorOption.ButtonActive, white, 0)
+                topLine:SetColor(RenderColorOption.ButtonHovered, white, 0)
+                local mainButton = topLine:Button()
+                local con = mainButton.OnUpdated:Connect(function()
+                    pop:Show()
+                end)
 
                 local temp2 = argFrame:SameLine()
                 temp2:SetColor(RenderColorOption.ButtonActive, colorOptions.FrameBg[1], 1)
@@ -1897,14 +1936,15 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 temp2:SetColor(RenderColorOption.Button, colorOptions.FrameBg[1], 1)
                 temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
 
-                local lineContents = temp2:Indent(8):Button()
+                local lineContents = firstLine and temp2:Indent(-1):Button() or temp2:Indent(8):Button()
                 lineContents.Label = spaces2 .. "HIDDEN NIL"
                 argFrame:SetColor(RenderColorOption.Text, colorHSV(258/360, 0.8, 1), 1)
                 if totalArgCount < 10 then
-                    lineContents.Size = Vector2.new(width-24-38, 24) -- 24 = left padding + indent, 38 = right padding (no scrollbar) 
+                    lineContents.Size = firstLine and normalFirstSize or normalSize
                 else
-                    lineContents.Size = Vector2.new(width-24-38-14, 24) -- 14 = scrollbar width, plus read above
+                    lineContents.Size = firstLine and scrollFirstSize or scrollSize
                 end
+                mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y+4)
 
                 local temp = argFrame:SameLine()
                 argFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
@@ -1913,16 +1953,17 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 temp:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(1, 0.5))
                 temp:SetColor(RenderColorOption.Text, colorHSV(179/360, 0.8, 1), 1)
 
-                local lineNum = temp:Indent(1):Button()
+                local lineNum = firstLine and temp:Indent(-7):Button() or temp:Indent(1):Button()
                 lineNum.Label = tostring(i + #call.Args)
                 lineNum.Size = Vector2.new(32, 24)
 
-                addSpacer(childWindow, 4)
+                --addSpacer(childWindow, 4)
             end
+            addSpacer(childWindow, 4) -- account for the space at the end of the arg list so when you scroll all the way down the padding looks good
         end
 
-        addSpacer(tempMain, 4)
-        tableInsert(argLines, { tempMain, pop })
+        addSpacer(tempMainDummy, 4)
+        tableInsert(argLines, { tempMainDummy, pop })
     end
 
     local function loadRemote(remote, data)
@@ -1949,7 +1990,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     -- Below this is rendering Front Page
     local topBar = frontPage:SameLine()
-    local frameWidth = width-130
+    local frameWidth = width-150
     local searchBarFrame = topBar:Indent(-0.35*frameWidth):Child()
     searchBarFrame.Size = Vector2.new(frameWidth, 24)
     searchBarFrame:SetColor(RenderColorOption.ChildBg, black, 0)
@@ -1960,13 +2001,6 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     searchButton.Label = "Search"
     tableInsert(_G.remoteSpyGuiConnections, searchButton.OnUpdated:Connect(function()
         filterLines(searchBar.Value) -- redundant because i did it above but /shrug
-    end))
-
-    local clearButton = topBar:Button()
-    clearButton.Label = "Reset"
-    tableInsert(_G.remoteSpyGuiConnections, clearButton.OnUpdated:Connect(function()
-        searchBar.Value = ""
-        clearFilter()
     end))
 
     local childWindow
@@ -1987,12 +2021,26 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         addSpacer(childWindow, 8)
     end))
 
-    local topRightBar = topBar:Indent(width-64):SameLine() -- -8 for right padding, -8 for previous left indent, -4 for middle padding, -24 per button
+    local topRightBar = topBar:Indent(width-92):SameLine() -- -8 for right padding, -8 for previous left indent, -28 per button +4 for left side padding
     topRightBar:SetColor(RenderColorOption.Button, black, 0)
     topRightBar:SetColor(RenderColorOption.ButtonHovered, black, 0)
     topRightBar:SetColor(RenderColorOption.ButtonActive, black, 0)
     topRightBar:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
     topRightBar:SetStyle(RenderStyleOption.ItemSpacing, Vector2.new(0, 0))
+
+    
+    local pauseSpyButton = topRightBar:Button()
+    pauseSpyButton.Label = "\xef\x8a\x8c"
+    pauseSpyButton.Size = Vector2.new(24, 24)
+    tableInsert(_G.remoteSpyGuiConnections, pauseSpyButton.OnUpdated:Connect(function()
+        if Settings.Paused then
+            Settings.Paused = false
+            pauseSpyButton.Label = "\xef\x8a\x8c"
+        else
+            Settings.Paused = true
+            pauseSpyButton.Label = "\xef\x80\x9d"
+        end
+    end))
 
     local settingsButton = topRightBar:Button()
     settingsButton.Label = "\xef\x80\x93"
@@ -2340,44 +2388,48 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         if func then
             local oldfunc
             oldfunc = hookfunction(func, function(...)
-                local spyFunc = spyFunctions[idxs[method]]
-                local args = shallowClone({...}, nil, -1)
-                local argCount = select("#", ...)
+                if not Settings.Paused then
+                    local spyFunc = spyFunctions[idxs[method]]
+                    local args = shallowClone({...}, nil, -1)
+                    local argCount = select("#", ...)
 
-                local callingScript = otherCheckCaller[remote] or {nil, checkcaller()}
+                    local callingScript = otherCheckCaller[remote] or {nil, checkcaller()}
 
-                otherCheckCaller[remote] = nil
+                    otherCheckCaller[remote] = nil
 
-                local data = {
-                    TypeIndex = idxs[method],
-                    CallbackScript = getcallingscript(),
-                    Script = callingScript[1],
-                    Args = args, -- 2 deeper total
-                    CallbackLog = otherLogs[remote],
-                    NilCount = (argCount - #args),
-                    FromSynapse = callingScript[2]
-                }
+                    local data = {
+                        TypeIndex = idxs[method],
+                        CallbackScript = getcallingscript(),
+                        Script = callingScript[1],
+                        Args = args, -- 2 deeper total
+                        CallbackLog = otherLogs[remote],
+                        NilCount = (argCount - #args),
+                        FromSynapse = callingScript[2]
+                    }
 
-                if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then 
-                    local returnValue = {}
-                    deferFunc(function()
+                    if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then 
+                        local returnValue = {}
+                        deferFunc(function()
+                            if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                                data.ReturnValue = returnValue
+
+                                sendLog(remote, data)
+                            end
+                        end)
+
+                        return processReturnValue(returnValue, oldfunc(...))
+                    end
+                
+                    if otherLogs[remote] and otherLogs[remote].Blocked then return end
+
+                    deferFunc(function(...)
                         if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                            data.ReturnValue = returnValue
-
                             sendLog(remote, data)
                         end
-                    end)
-
-                    return processReturnValue(returnValue, oldfunc(...))
+                    end, ...)
+                elseif otherLogs[remote] and otherLogs[remote].Blocked then 
+                    return
                 end
-            
-                if otherLogs[remote] and otherLogs[remote].Blocked then return end
-
-                deferFunc(function(...)
-                    if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                        sendLog(remote, data)
-                    end
-                end, ...)
 
                 return oldfunc(...)
             end)
@@ -2397,46 +2449,48 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             local scriptCache = {}
             local connectionCache = {} -- unused (for now)
             hooksignal(signal, function(info, ...)
-                deferFunc(function(...)
-                    local spyFunc = spyFunctions[idxs[signalType]]
-                    if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                        if info.Index == 0 then
-                            tableClear(connectionCache)
-                            tableClear(scriptCache)
-                        end
+                if not Settings.Paused then
+                    deferFunc(function(...)
+                        local spyFunc = spyFunctions[idxs[signalType]]
+                        if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                            if info.Index == 0 then
+                                tableClear(connectionCache)
+                                tableClear(scriptCache)
+                            end
 
-                        tableInsert(connectionCache, info.Connection)
-                        local CS = getcallingscript()
-                        if CS then
-                            if scriptCache[CS] then
-                                scriptCache[CS] += 1
-                            else
-                                scriptCache[CS] = 1
+                            tableInsert(connectionCache, info.Connection)
+                            local CS = getcallingscript()
+                            if CS then
+                                if scriptCache[CS] then
+                                    scriptCache[CS] += 1
+                                else
+                                    scriptCache[CS] = 1
+                                end
+                            end
+
+                            local callingScript = otherCheckCaller[remote] or {nil, false}
+
+                            otherCheckCaller[remote] = nil
+                            
+                            if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
+                                local args = shallowClone({...}, nil, -1)
+                                local argCount = select("#", ...)
+                                local data = {
+                                    TypeIndex = idxs[signalType],
+                                    Script = callingScript[1],
+                                    Scripts = scriptCache,
+                                    Connections = connectionCache,
+                                    Signal = signal,
+                                    Args = args, -- 2 deeper total
+                                    NilCount = (argCount - #args),
+                                    FromSynapse = callingScript[2]
+                                }
+
+                                sendLog(remote, data)
                             end
                         end
-
-                        local callingScript = otherCheckCaller[remote] or {nil, false}
-
-                        otherCheckCaller[remote] = nil
-                        
-                        if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
-                            local args = shallowClone({...}, nil, -1)
-                            local argCount = select("#", ...)
-                            local data = {
-                                TypeIndex = idxs[signalType],
-                                Script = callingScript[1],
-                                Scripts = scriptCache,
-                                Connections = connectionCache,
-                                Signal = signal,
-                                Args = args, -- 2 deeper total
-                                NilCount = (argCount - #args),
-                                FromSynapse = callingScript[2]
-                            }
-
-                            sendLog(remote, data)
-                        end
-                    end
-                end, ...)
+                    end, ...)
+                end
 
                 if otherLogs[remote].Blocked then 
                     return false
@@ -2565,26 +2619,28 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     do -- namecall and function hooks
         local oldNamecall
         oldNamecall = newHookMetamethod(game, "__namecall", newcclosure(function(remote, ...)
-            local spyFunc = spyFunctions[idxs[getnamecallmethod()]]
+            if not Settings.Paused then
+                local spyFunc = spyFunctions[idxs[getnamecallmethod()]]
 
-            if spyFunc.Type == "Call" and spyFunc.FiresLocally then
-                local caller = checkcaller()
-                otherCheckCaller[remote] = otherCheckCaller[remote] or {(not caller and getcallingscript()), caller}
+                if spyFunc.Type == "Call" and spyFunc.FiresLocally then
+                    local caller = checkcaller()
+                    otherCheckCaller[remote] = otherCheckCaller[remote] or {(not caller and getcallingscript()), caller}
+                end
+                -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
+
+                if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
+                    local returnValue = {}
+                    deferFunc(function(...)
+                        --repeat taskWait() until returnValue.Args
+
+                        addCall(remote, returnValue, spyFunc, ...)
+                    end, ...) -- I could rewrite the entire system to not need a second thread, but the issue is that then I would need to encorporate all data collection into that function, and essentially make the entire function run on what is currently a new thread, rather than having a new thread running separately from the entire function.
+                    return processReturnValue(returnValue, oldNamecall(remote, ...))
+                end
+
+                deferFunc(addCall, remote, nil, spyFunc, ...)
+                --addCall(remote, nil, spyFunc, ...)
             end
-            -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
-
-            if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-                local returnValue = {}
-                deferFunc(function(...)
-                    --repeat taskWait() until returnValue.Args
-
-                    addCall(remote, returnValue, spyFunc, ...)
-                end, ...) -- I could rewrite the entire system to not need a second thread, but the issue is that then I would need to encorporate all data collection into that function, and essentially make the entire function run on what is currently a new thread, rather than having a new thread running separately from the entire function.
-                return processReturnValue(returnValue, oldNamecall(remote, ...))
-            end
-
-            deferFunc(addCall, remote, nil, spyFunc, ...)
-            --addCall(remote, nil, spyFunc, ...)
         
             if callLogs[remote] and callLogs[remote].Blocked then return end
 
@@ -2596,23 +2652,25 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
                 local oldFunc
                 local newfunction = function(remote, ...)
-                    local spyFunc = v
-                    if spyFunc.Type == "Call" and spyFunc.FiresLocally then
-                        local caller = checkcaller()
-                        otherCheckCaller[remote] = otherCheckCaller[remote] or {(not caller and getcallingscript()), caller}
-                    end
+                    if not Settings.Paused then
+                        local spyFunc = v
+                        if spyFunc.Type == "Call" and spyFunc.FiresLocally then
+                            local caller = checkcaller()
+                            otherCheckCaller[remote] = otherCheckCaller[remote] or {(not caller and getcallingscript()), caller}
+                        end
 
-                    if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-                        local returnValue = {}
-                        deferFunc(function(...) -- defers until after processReturnValue runs and sets returnValue
-                            
-                            addCall(remote, returnValue, spyFunc, ...)
-                        end, ...)
-                        return processReturnValue(returnValue, oldNamecall(remote, ...))
-                    end
+                        if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
+                            local returnValue = {}
+                            deferFunc(function(...) -- defers until after processReturnValue runs and sets returnValue
+                                
+                                addCall(remote, returnValue, spyFunc, ...)
+                            end, ...)
+                            return processReturnValue(returnValue, oldFunc(remote, ...))
+                        end
 
-                    deferFunc(addCall, remote, nil, spyFunc, ...)
-                    --addCall(remote, nil, spyFunc, ...)
+                        deferFunc(addCall, remote, nil, spyFunc, ...)
+                        --addCall(remote, nil, spyFunc, ...)
+                    end
                 
                     if callLogs[remote] and callLogs[remote].Blocked then return end
 

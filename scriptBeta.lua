@@ -447,9 +447,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
             
             if format then
-                return #data > 0 and strformat("%s\n%s", sub(head, 1, -3), rep('\t', indents - 1) .. '}') or "{}"
+                return #head > 2 and strformat("%s\n%s", sub(head, 1, -3), rep('\t', indents - 1) .. '}') or "{}"
             else
-                return #data > 0 and (sub(head, 1, -3) .. ' }') or "{}"
+                return #head > 2 and (sub(head, 1, -3) .. ' }') or "{}"
             end
         elseif dataType == "function" and (call.Type == "BindableEvent" or call.Type == "BindableFunction") then -- functions are only receivable through bindables, not remotes
             varConstructor = 'nil -- "' .. tostring(data) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case

@@ -1587,7 +1587,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         local button = window:Selectable()
         button.Label = "Generate Calling Pseudocode"
         local con = button.OnUpdated:Connect(function()
-            if not warn(pcall(function()
+            if not pcall(function()
                 if Settings.SendPseudocodeToExternal then
                     createuitab("RS Pseudocode", genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 2))
                     pushSuccess("Generated Pseudocode to External UI")
@@ -1595,7 +1595,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                     setclipboard(genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 3)) -- no pseudocode watermark when setting to clipboard
                     pushSuccess("Generated Pseudocode to Clipboard")
                 end
-            end)) then
+            end) then
                 pushError("Failed to Generate Pseudocode")
             end
         end)

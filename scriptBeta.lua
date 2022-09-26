@@ -1102,12 +1102,12 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local topBar = settingsWindow:SameLine()
     local exitButtonFrame = topBar:SameLine()
     exitButtonFrame:SetColor(RenderColorOption.Button, black, 0)
-    exitButtonFrame:SetColor(RenderColorOption.ButtonHovered, black, 0)
-    exitButtonFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
+    --exitButtonFrame:SetColor(RenderColorOption.ButtonHovered, black, 0)
+    --exitButtonFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
 
     local exitButton = exitButtonFrame:Indent(settingsWidth-40):Button()
     exitButton.Label = "\xef\x80\x8d"
-    exitButton.Size = Vector2.new(25, 25)
+    exitButton.Size = Vector2.new(24, 24)
     tableInsert(_G.remoteSpyGuiConnections, exitButton.OnUpdated:Connect(function()
         settingsWindow.Visible = false
     end))
@@ -1306,10 +1306,24 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     do -- topbar code
 
-        local exitButtonFrame = topBar:Dummy()
-        exitButtonFrame:SetColor(RenderColorOption.Button, black, 0)
-        exitButtonFrame:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
-        local exitButton = exitButtonFrame:Indent(width-41):Button()
+        local buttonsFrame = topBar:Dummy():SameLine()
+        buttonsFrame:SetColor(RenderColorOption.Button, black, 0)
+        buttonsFrame:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
+        
+        local pauseSpyButton = buttonsFrame:Indent(width-68):Button()
+        pauseSpyButton.Size = Vector2.new(24, 24)
+        pauseSpyButton.Label = "\xef\x8a\x8c"
+        tableInsert(_G.remoteSpyGuiConnections, pauseSpyButton.OnUpdated:Connect(function()
+            if Settings.Paused then
+                Settings.Paused = false
+                pauseSpyButton.Label = "\xef\x8a\x8c"
+            else
+                Settings.Paused = true
+                pauseSpyButton.Label = "\xef\x80\x9d"
+            end
+        end))
+
+        local exitButton = buttonsFrame:Indent(width-40):Button()
         exitButton.Size = Vector2.new(24, 24)
         exitButton.Label = "\xef\x80\x8d"
         tableInsert(_G.remoteSpyGuiConnections, exitButton.OnUpdated:Connect(unloadRemote))
@@ -2021,15 +2035,20 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         addSpacer(childWindow, 8)
     end))
 
-    local topRightBar = topBar:Indent(width-92):SameLine() -- -8 for right padding, -8 for previous left indent, -28 per button +4 for left side padding
+    local topRightBar = topBar:Indent(width-96):SameLine() -- -8 for right padding, -8 for previous left indent, -28 per button +4 for left side padding
     topRightBar:SetColor(RenderColorOption.Button, black, 0)
-    topRightBar:SetColor(RenderColorOption.ButtonHovered, black, 0)
-    topRightBar:SetColor(RenderColorOption.ButtonActive, black, 0)
     topRightBar:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
     topRightBar:SetStyle(RenderStyleOption.ItemSpacing, Vector2.new(0, 0))
 
-    
-    local pauseSpyButton = topRightBar:Button()
+
+    local settingsButton = topRightBar:Button()
+    settingsButton.Label = "\xef\x80\x93"
+    settingsButton.Size = Vector2.new(24, 24)
+    tableInsert(_G.remoteSpyGuiConnections, settingsButton.OnUpdated:Connect(function()
+        settingsWindow.Visible = not settingsWindow.Visible
+    end))
+
+    local pauseSpyButton = topRightBar:Indent(28):Button()
     pauseSpyButton.Label = "\xef\x8a\x8c"
     pauseSpyButton.Size = Vector2.new(24, 24)
     tableInsert(_G.remoteSpyGuiConnections, pauseSpyButton.OnUpdated:Connect(function()
@@ -2042,14 +2061,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
     end))
 
-    local settingsButton = topRightBar:Button()
-    settingsButton.Label = "\xef\x80\x93"
-    settingsButton.Size = Vector2.new(24, 24)
-    tableInsert(_G.remoteSpyGuiConnections, settingsButton.OnUpdated:Connect(function()
-        settingsWindow.Visible = not settingsWindow.Visible
-    end))
-
-    local exitButton = topRightBar:Button()
+    local exitButton = topRightBar:Indent(56):Button()
     exitButton.Label = "\xef\x80\x91"
     exitButton.Size = Vector2.new(24, 24)
     tableInsert(_G.remoteSpyGuiConnections, exitButton.OnUpdated:Connect(function()

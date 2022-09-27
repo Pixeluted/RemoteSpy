@@ -395,9 +395,15 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         InvokeServer = 2,
         Fire = 3,
         Invoke = 4,
+
+        fireServer = 1,
+        invokeServer = 2,
+        fire = 3,
+        invoke = 4,
+        
         OnClientEvent = 5,
         OnClientInvoke = 6,
-        OnEvent = 7,
+        Event = 7,
         OnInvoke = 8,
     }
 

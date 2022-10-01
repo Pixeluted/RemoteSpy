@@ -25,13 +25,14 @@ local function cleanUpSpy()
     _G.remoteSpyMainWindow = nil
     _G.remoteSpySettingsWindow = nil
     
-    restorefunction(Instance.new("RemoteEvent").FireServer)
-    restorefunction(Instance.new("RemoteFunction").InvokeServer)
-    restorefunction(Instance.new("BindableEvent").Fire)
-    restorefunction(Instance.new("BindableFunction").Invoke)
-    restorefunction(getrawmetatable(game).__namecall)
-    restorefunction(getrawmetatable(game).__index)
-    restorefunction(getrawmetatable(game).__newindex)
+    local unHook = syn.oth.unhook
+    unHook(Instance.new("RemoteEvent").FireServer)
+    unHook(Instance.new("RemoteFunction").InvokeServer)
+    unHook(Instance.new("BindableEvent").Fire)
+    unHook(Instance.new("BindableFunction").Invoke)
+    unHook(getrawmetatable(game).__namecall)
+    unHook(getrawmetatable(game).__index)
+    unHook(getrawmetatable(game).__newindex)
 end
 
 if _G.remoteSpyMainWindow or _G.remoteSpySettingsWindow then
@@ -98,11 +99,11 @@ else
     end
 end
 
-if not isfile("Remote Spy Settings/Icons.ttf") then
-    writefileasync("Remote Spy Settings/Icons.ttf", syn.request({ Url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/Icons.ttf" }).Body)
+if isfile("Remote Spy Settings/Icons.ttf") then
+    delfile("Remote Spy Settings/Icons.ttf") -- no longer caching stuff, i'll do that later once i have a good system to cache the script and the icons
 end
 
-local fontData = readfile("Remote Spy Settings/Icons.ttf")
+local fontData = syn.request({ Url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/Icons.ttf" }).Body
 
 local RemoteIconFont = DrawFont.Register(fontData, {
     Scale = false,
@@ -127,6 +128,8 @@ local CallerIconFont = DrawFont.Register(fontData, {
 local colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match = Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match
 
 local inf, neginf = 1/0, -1/0
+
+local othHook = syn.oth.hook
 
 local red = colorRGB(255, 0, 0)
 local green = colorRGB(0, 255, 0)
@@ -170,6 +173,32 @@ local colorOptions = {
     HeaderHovered = {colorRGB(55, 55, 55), 1},
     HeaderActive = {colorRGB(75, 75, 75), 1},
 }
+
+
+
+local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
+    local oldFunction
+
+    local func = getfilter(filter, function(...) 
+        --warn("call received Here: ", checkcaller(), getnamecallmethod())
+        return oldFunction(...)
+    end, hookFunction)
+
+    oldFunction = othHook(getrawmetatable(toHook)[mtmethod], func)
+    warn(oldFunction)
+    return oldFunction
+end
+
+local function filteredOth(toHook, hookFunction, filter)
+    local oldFunction
+
+    local func = getfilter(filter, function(...) 
+        return oldFunction(...)
+    end, hookFunction)
+
+    oldFunction = othHook(toHook, func)
+    return oldFunction
+end
 
 local function pushError(message: string)
     syn.toast_notification({
@@ -2404,7 +2433,7 @@ local function processReturnValue(refTable, ...)
     return ...
 end
 
-local function addCall(remote, returnValue, spyFunc, ...)
+local function addCall(remote, returnValue, spyFunc, caller, ...)
     if not callLogs[remote] then
         callLogs[remote] = {
             Blocked = false,
@@ -2422,7 +2451,6 @@ local function addCall(remote, returnValue, spyFunc, ...)
             return
         end
 
-        local caller = checkcaller()
         local callingScript = callCheckCaller[remote] or {(not caller and getcallingscript()), caller}
 
         callCheckCaller[remote] = nil
@@ -2463,7 +2491,7 @@ local function addCallback(remote, method, func)
 
     if func then
         local oldfunc
-        oldfunc = hookfunction(func, function(...)
+        oldfunc = hookfunction(func, function(...) -- lclosure
             if not Settings.Paused then
                 local spyFunc = spyFunctions[idxs[method]]
                 local args = shallowClone({...}, nil, -1)
@@ -2600,10 +2628,10 @@ do -- filter setup
         elseif v.Type == "Call" then
             tableInsert(namecallFilters, AllFilter.new({
                 InstanceTypeFilter.new(1, v.Object),
-                AnyFilter.new({
+                --[[AnyFilter.new({
                     NamecallFilter.new(v.Method),
                     NamecallFilter.new(v.DeprecatedMethod)
-                })
+                })]]
             }))
         elseif v.Type == "Connection" then
             tableInsert(indexFilters, AllFilter.new({
@@ -2615,17 +2643,6 @@ do -- filter setup
             }))
         end
     end
-end
-
-local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
-    local oldFunction
-
-    local func = getfilter(filter, function(...) 
-        return oldFunction(...)
-    end, hookFunction)
-
-    oldFunction = hookmetamethod(toHook, mtmethod, func)
-    return oldFunction
 end
 
 local oldNewIndex -- this is for OnClientInvoke hooks
@@ -2695,6 +2712,7 @@ end
 do -- namecall and function hooks
     local oldNamecall
     oldNamecall = newHookMetamethod(game, "__namecall", newcclosure(function(remote, ...)
+        warn("call received: ", checkcaller(), getnamecallmethod())
         if not Settings.Paused then
             local spyFunc = spyFunctions[idxs[getnamecallmethod()]]
 
@@ -2709,12 +2727,12 @@ do -- namecall and function hooks
                 deferFunc(function(...)
                     --repeat taskWait() until returnValue.Args
 
-                    addCall(remote, returnValue, spyFunc, ...)
+                    addCall(remote, returnValue, spyFunc, checkcaller(), ...)
                 end, ...) -- I could rewrite the entire system to not need a second thread, but the issue is that then I would need to encorporate all data collection into that function, and essentially make the entire function run on what is currently a new thread, rather than having a new thread running separately from the entire function.
                 return processReturnValue(returnValue, oldNamecall(remote, ...))
             end
 
-            deferFunc(addCall, remote, nil, spyFunc, ...)
+            deferFunc(addCall, remote, nil, spyFunc, checkcaller(), ...)
             --addCall(remote, nil, spyFunc, ...)
         end
     
@@ -2739,12 +2757,12 @@ do -- namecall and function hooks
                         local returnValue = {}
                         deferFunc(function(...) -- defers until after processReturnValue runs and sets returnValue
                             
-                            addCall(remote, returnValue, spyFunc, ...)
+                            addCall(remote, returnValue, spyFunc, checkcaller(), ...)
                         end, ...)
                         return processReturnValue(returnValue, oldFunc(remote, ...))
                     end
 
-                    deferFunc(addCall, remote, nil, spyFunc, ...)
+                    deferFunc(addCall, remote, nil, spyFunc, checkcaller(), ...)
                     --addCall(remote, nil, spyFunc, ...)
                 end
             
@@ -2753,7 +2771,7 @@ do -- namecall and function hooks
                 return oldFunc(remote, ...)
             end
 
-            oldFunc = hookfunction(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object))
+            oldFunc = filteredOth(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object))
 
             v.Function = newfunction
         end

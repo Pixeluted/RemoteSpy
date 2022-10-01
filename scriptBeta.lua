@@ -59,6 +59,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         OnInvoke = false,
 
         Paused = false,
+        AlwaysOnTop = true,
 
         CallbackButtons = false,
         DecompileScriptsToExternal = false,
@@ -94,6 +95,32 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             end
         end
     end
+
+    if not isfile("Remote Spy Settings/Icons.ttf") then
+        writefileasync("Remote Spy Settings/Icons.ttf", syn.request({ Url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/Icons.ttf" }).Body)
+    end
+
+    local fontData = readfile("Remote Spy Settings/Icons.ttf")
+
+    local RemoteIconFont = DrawFont.Register(fontData, {
+        Scale = false,
+        Bold = false,
+        UseStb = false,
+        PixelSize = 18,
+        Glyphs = {
+            {0xE000, 0xE007}
+        }
+    })
+
+    local CallerIconFont = DrawFont.Register(fontData, {
+        Scale = false,
+        Bold = false,
+        UseStb = false,
+        PixelSize = 27,
+        Glyphs = {
+            {0xE008, 0xE009}
+        }
+    })
 
     local colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match = Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match
 
@@ -548,8 +575,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Method = "FireServer",
             DeprecatedMethod = "fireServer",
             Enabled = Settings.FireServer,
-            Icon = "\xef\x83\xa7",
-            Color = colorRGB(253, 206, 0),
+            Icon = "\xee\x80\x80  ",
             Indent = 0
         },
         {
@@ -560,8 +586,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Method = "InvokeServer",
             DeprecatedMethod = "invokeServer",
             Enabled = Settings.InvokeServer,
-            Icon = "\xef\x81\xa4",
-            Color = colorRGB(250, 152, 251),
+            Icon = "\xee\x80\x81  ",
             Indent = 153
         },
         {
@@ -572,8 +597,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Method = "Fire",
             DeprecatedMethod = "fire",
             Enabled = Settings.Fire,
-            Icon = "\xef\x83\xa7",
-            Color = colorRGB(200, 100, 0),
+            Icon = "\xee\x80\x82  ",
             Indent = 319
         },
         {
@@ -585,8 +609,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Method = "Invoke",
             DeprecatedMethod = "invoke",
             Enabled = Settings.Invoke,
-            Icon = "\xef\x81\xa4",
-            Color = colorRGB(163, 51, 189),
+            Icon = "\xee\x80\x83  ",
             Indent = 434
         },
 
@@ -598,8 +621,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Connection = "OnClientEvent",
             DeprecatedConnection = "onClientEvent",
             Enabled = Settings.OnClientEvent,
-            Icon = "\xef\x83\xa8",
-            Color = colorRGB(253, 206, 0),
+            Icon = "\xee\x80\x84  ",
             Indent = 0
         },
         {
@@ -611,8 +633,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Callback = "OnClientInvoke",
             DeprecatedCallback = "onClientInvoke",
             Enabled = Settings.OnClientInvoke,
-            Icon = "\xef\x84\xa2",
-            Color = colorRGB(250, 152, 251),
+            Icon = "\xee\x80\x85  ",
             Indent = 153
         },
         {
@@ -622,8 +643,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Connection = "Event", -- not OnEvent cause roblox naming is wacky
             DeprecatedConnection = "event",
             Enabled = Settings.OnEvent,
-            Icon = "\xef\x83\xa8",
-            Color = colorRGB(200, 100, 0),
+            Icon = "\xee\x80\x86  ",
             Indent = 319
         },
         {
@@ -634,8 +654,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
             Callback = "OnInvoke",
             DeprecatedCallback = "onInvoke",
             Enabled = Settings.OnInvoke,
-            Icon = "\xef\x84\xa2",
-            Color = colorRGB(163, 51, 189),
+            Icon = "\xee\x80\x87  ",
             Indent = 434
         }
     }
@@ -1079,7 +1098,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     local settingsHeight = 301
     settingsWindow.DefaultSize = Vector2.new(settingsWidth, settingsHeight)
     settingsWindow.CanResize = false
-    settingsWindow.VisibilityOverride = true
+    settingsWindow.VisibilityOverride = Settings.AlwaysOnTop
     settingsWindow.Visible = false
     settingsWindow:SetColor(RenderColorOption.ResizeGrip, black, 0)
     settingsWindow:SetColor(RenderColorOption.ResizeGripActive, black, 0)
@@ -1092,7 +1111,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
     mainWindow.DefaultSize = Vector2.new(width, 350)
     mainWindow.MinSize = Vector2.new(width, 350)
     mainWindow.MaxSize = Vector2.new(width, 5000)
-    mainWindow.VisibilityOverride = true
+    mainWindow.VisibilityOverride = Settings.AlwaysOnTop
 
     local frontPage = mainWindow:Dummy()
     local remotePage = mainWindow:Dummy()
@@ -1187,6 +1206,16 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         checkBox5.Value = Settings.MoreRepeatCallOptions
         tableInsert(_G.remoteSpyGuiConnections, checkBox5.OnUpdated:Connect(function(value)
             Settings.MoreRepeatCallOptions = value
+            saveConfig()
+        end))
+
+        local checkBox6 = generalTab:CheckBox()
+        checkBox6.Label = "Always On Top"
+        checkBox6.Value = Settings.AlwaysOnTop
+        tableInsert(_G.remoteSpyGuiConnections, checkBox6.OnUpdated:Connect(function(value)
+            Settings.AlwaysOnTop = value
+            mainWindow.VisibilityOverride = value
+            settingsWindow.VisibilityOverride = value
             saveConfig()
         end))
     end -- general settings
@@ -1304,22 +1333,27 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
     local topBar = remotePage:SameLine()
 
+    local pauseSpyButton -- declared later, referenced here
+    local pauseSpyButton2
+
     do -- topbar code
 
         local buttonsFrame = topBar:Dummy():SameLine()
         buttonsFrame:SetColor(RenderColorOption.Button, black, 0)
         buttonsFrame:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0.5, 0.5))
         
-        local pauseSpyButton = buttonsFrame:Indent(width-68):Button()
-        pauseSpyButton.Size = Vector2.new(24, 24)
-        pauseSpyButton.Label = "\xef\x8a\x8c"
-        tableInsert(_G.remoteSpyGuiConnections, pauseSpyButton.OnUpdated:Connect(function()
+        pauseSpyButton2 = buttonsFrame:Indent(width-68):Button()
+        pauseSpyButton2.Size = Vector2.new(24, 24)
+        pauseSpyButton2.Label = Settings.Paused and "\xef\x80\x9d" or "\xef\x8a\x8c"
+        tableInsert(_G.remoteSpyGuiConnections, pauseSpyButton2.OnUpdated:Connect(function()
             if Settings.Paused then
                 Settings.Paused = false
                 pauseSpyButton.Label = "\xef\x8a\x8c"
+                pauseSpyButton2.Label = "\xef\x8a\x8c"
             else
                 Settings.Paused = true
                 pauseSpyButton.Label = "\xef\x80\x9d"
+                pauseSpyButton2.Label = "\xef\x80\x9d"
             end
         end))
 
@@ -1337,7 +1371,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         remoteName.Size = Vector2.new(150, 24)
         remoteName.Label = "RemoteEvent"
 
-        local remoteIconFrame = topBar:Dummy()
+        local remoteIconFrame = topBar:Dummy():WithFont(RemoteIconFont)
         remoteIconFrame:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(1, 0.5))
         remoteIconFrame:SetColor(RenderColorOption.Button, black, 0)
         remoteIconFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
@@ -1345,7 +1379,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         remoteIconFrame:SetColor(RenderColorOption.Text, black, 1) -- temporarily black, gets set later
         local remoteIcon = remoteIconFrame:Indent(4):Button()
         remoteIcon.Size = Vector2.new(20, 24)
-        remoteIcon.Label = "\xef\x83\xa7"
+        remoteIcon.Label = "\xee\x80\x80" -- default
 
         remotePageObjects.Name = remoteName
         remotePageObjects.Icon = remoteIcon
@@ -1817,25 +1851,28 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         local textFrame = childWindow:Dummy()
 
-        addSpacer(textFrame, 8)
+        addSpacer(textFrame, 6)
 
         local indentFrame = textFrame:Indent(4):SameLine()
         
-        local temp = indentFrame:Dummy()
+        local temp = indentFrame:Indent(-2):WithFont(CallerIconFont) -- center it
+        temp:SetStyle(RenderStyleOption.FramePadding, Vector2.new(2, 0))
         temp:SetColor(RenderColorOption.Button, black, 0)
         temp:SetColor(RenderColorOption.ButtonActive, black, 0)
         temp:SetColor(RenderColorOption.ButtonHovered, black, 0)
+        local btn = temp:Button()
         
         if call.FromSynapse then
-            temp:SetColor(RenderColorOption.Text, colorRGB(252, 86, 3), 1)
+            btn.Label = "\xee\x80\x89"
         else
-            temp:SetColor(RenderColorOption.Text, colorRGB(51, 136, 255), 1)
+            btn.Label = "\xee\x80\x88"
         end
+        btn.Size = Vector2.new(24, 30)
 
-        local fakeBtn = temp:Button()
-        fakeBtn.Label = "\xef\x87\x89"
-
-        local firstArgFrame = indentFrame:Indent(28):SameLine() -- 1 extra cause -1 later
+        local firstArgFrame = indentFrame:Indent(28):Child() -- 1 extra cause -1 later, and using child so I can make the icon line up
+        firstArgFrame.Size = Vector2.new(width-24-38-23, 30)
+        addSpacer(firstArgFrame, 2)
+        firstArgFrame = firstArgFrame:SameLine()
 
         if totalArgCount == 0 or totalArgCount == 1 then
             local argFrame = firstArgFrame:SameLine()
@@ -1916,7 +1953,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 else
                     lineContents.Size = firstLine and scrollFirstSize or scrollSize
                 end
-                mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y+4)
+                mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y+4) -- +4 to add spacer
 
                 local temp = argFrame:SameLine()
                 argFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
@@ -1958,7 +1995,11 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
                 else
                     lineContents.Size = firstLine and scrollFirstSize or scrollSize
                 end
-                mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y+4)
+                if firstLine then
+                    mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y) -- +2 cause type icon adds 2 for some reason
+                else
+                    mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y+4) -- +4 to add spacer
+                end
 
                 local temp = argFrame:SameLine()
                 argFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
@@ -1988,8 +2029,7 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         currentSelectedRemote = remote
         currentSelectedType = funcInfo.Type
         remotePageObjects.Name.Label = remote and purifyString(remote.Name) or "NIL REMOTE"
-        remotePageObjects.Icon.Label = funcInfo.Icon
-        remotePageObjects.IconFrame:SetColor(RenderColorOption.Text, funcInfo.Color, 1)
+        remotePageObjects.Icon.Label = funcInfo.Icon .. "   "
         remotePageObjects.IgnoreButton.Label = (logs[remote].Ignored and "Unignore") or "Ignore"
         remotePageObjects.IgnoreButtonFrame:SetColor(RenderColorOption.Text, (logs[remote].Ignored and green) or red, 1)
         remotePageObjects.BlockButton.Label = (logs[remote].Blocked and "Unblock") or "Block"
@@ -2048,17 +2088,19 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         settingsWindow.Visible = not settingsWindow.Visible
     end))
 
-    local pauseSpyButton = topRightBar:Indent(28):Button()
-    pauseSpyButton.Label = "\xef\x8a\x8c"
+    pauseSpyButton = topRightBar:Indent(28):Button()
+    pauseSpyButton.Label = Settings.Paused and "\xef\x80\x9d" or "\xef\x8a\x8c"
     pauseSpyButton.Size = Vector2.new(24, 24)
     tableInsert(_G.remoteSpyGuiConnections, pauseSpyButton.OnUpdated:Connect(function()
         if Settings.Paused then
-            Settings.Paused = false
-            pauseSpyButton.Label = "\xef\x8a\x8c"
-        else
-            Settings.Paused = true
-            pauseSpyButton.Label = "\xef\x80\x9d"
-        end
+                Settings.Paused = false
+                pauseSpyButton.Label = "\xef\x8a\x8c"
+                pauseSpyButton2.Label = "\xef\x8a\x8c"
+            else
+                Settings.Paused = true
+                pauseSpyButton.Label = "\xef\x80\x9d"
+                pauseSpyButton2.Label = "\xef\x80\x9d"
+            end
     end))
 
     local exitButton = topRightBar:Indent(56):Button()
@@ -2084,9 +2126,8 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
         end
         
         local tempLine = v.Indent == 0 and sameLine:Dummy() or sameLine:Indent(v.Indent):Dummy()
-        tempLine:SetColor(RenderColorOption.Text, v.Color, 1)
         
-        local btn = tempLine:CheckBox()
+        local btn = tempLine:WithFont(RemoteIconFont):CheckBox()
         btn.Label = v.Icon
         btn.Value = v.Enabled
         v.Button = btn
@@ -2253,10 +2294,9 @@ if not _G.remoteSpyMainWindow and not _G.remoteSpySettingsWindow then
 
         addSpacer(sameButtonLine, 3)
 
-        local cloneLine = sameButtonLine:SameLine():Indent(6)
-        cloneLine:SetColor(RenderColorOption.Text, spyFunc.Color, 1)
+        local cloneLine = sameButtonLine:WithFont(RemoteIconFont):Indent(6)
         
-        cloneLine:Label(spyFunc.Icon)
+        cloneLine:Label(spyFunc.Icon .. "   ")
         
         local cloneLine2 = sameButtonLine:SameLine()
         cloneLine2:SetColor(RenderColorOption.Text, colorHSV(179/360, 0.8, 1), 1)

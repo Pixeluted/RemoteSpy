@@ -1021,14 +1021,14 @@ local function genRecvPseudo(rem, call, spyFunc, watermark)
     end
 end
 
-local otherLines = {}
-local otherLogs = {}
-local otherFuncs = {}
-local otherCheckCaller = {}
-local callLines = {}
-local callLogs = {}
-local callFuncs = {}
-local callCheckCaller = {}
+local otherLines = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local otherLogs =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local otherFuncs =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local otherCheckCaller =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local callLines =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local callLogs =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local callFuncs =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local callCheckCaller =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
 
 local argLines = {}
 local callbackButtonline

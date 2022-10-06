@@ -4,6 +4,11 @@
     -- Make main window remote list use popups (depends on OnRightClick)
     -- Make arg list use right click (depends on defcon)
 
+local mt = getrawmetatable(game)
+if islclosure(mt.__namecall) or islclosure(mt.__index) or islclosure(mt.__newindex) then 
+    error("script incompatibility detected, one of your scripts has set the game's metamethods to a luaclosure")
+end
+
 if not RenderWindow then
     error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
 end
@@ -30,9 +35,9 @@ local function cleanUpSpy()
     unHook(Instance.new("RemoteFunction").InvokeServer)
     unHook(Instance.new("BindableEvent").Fire)
     unHook(Instance.new("BindableFunction").Invoke)
-    unHook(getrawmetatable(game).__namecall)
-    unHook(getrawmetatable(game).__index)
-    unHook(getrawmetatable(game).__newindex)
+    unHook(mt.__namecall)
+    unHook(mt.__index)
+    unHook(mt.__newindex)
 end
 
 if _G.remoteSpyMainWindow or _G.remoteSpySettingsWindow then

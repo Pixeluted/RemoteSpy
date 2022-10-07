@@ -6,7 +6,7 @@
 
 local mt = getrawmetatable(game)
 if islclosure(mt.__namecall) or islclosure(mt.__index) or islclosure(mt.__newindex) then 
-    error("script incompatibility detected, one of your scripts has set the game's metamethods to a luaclosure")
+    error("script incompatibility detected, one of your scripts has set the game's metamethods to a luaclosure, please run the remotespy prior to that script")
 end
 
 if not RenderWindow then
@@ -331,7 +331,7 @@ local asciiFilteredCharacters = {
 local synEncode = syn.crypt.url.encode
 
 local function purifyString(str: string, quotes: boolean)
-    str = gsub(synEncode(gsub(str, "\\", "\\\\")), "%%", "\\x")
+    str = gsub(synEncode(str), "%%", "\\x")
     for i,v in asciiFilteredCharacters do
         str = gsub(str, v, i)
     end
@@ -463,7 +463,7 @@ local function tableToString(data, format, root, indents) -- FORKED FROM HYDROXI
         return (typeof(data) == "Instance" and getInstancePath(data)) or userdataValue(data)
     elseif dataType == "string" then
         local success, result = pcall(purifyString, data, true)
-        return (success and result) or toString(data)
+        return (success and result) or tostring(data)
     elseif dataType == "table" then
         indents = indents or 1
         root = root or data

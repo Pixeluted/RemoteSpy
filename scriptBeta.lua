@@ -46,6 +46,7 @@ end
 
 local HttpService = cloneref(game:GetService("HttpService"))
 local Players = cloneref(game:GetService("Players"))
+
 local client, clientid
 if not client then -- autoexec moment
     task.spawn(function()
@@ -130,7 +131,7 @@ local CallerIconFont = DrawFont.Register(fontData, {
     }
 })
 
-local colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match = Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match
+local colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack, unpack = Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack, table.unpack
 
 local inf, neginf = (1/0), (-1/0)
 
@@ -229,7 +230,6 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
     if stack == 300 then -- this stack overflow check doesn't really matter as a stack overflow check, it's just here to make sure there are no cyclic tables.  While I could just check for cyclics directly, this is faster.
         return false, stack
     end
-
     for i,v in next, myTable do
         local primType = type(v)
         if primType == "table" then
@@ -470,19 +470,20 @@ local function tableToString(data, format, root, indents) -- FORKED FROM HYDROXI
 
         local head = format and '{\n' or '{ '
         local indent = rep('\t', indents)
-        local orderedNumbers = (#table.pack(ipairs(data))[2] ~= 0)
+        local orderedNumbers = (#pack(ipairs(data))[2] ~= 0)
         local elements = 0
         -- moved checkCyclic check to hook
         if format then
             if orderedNumbers then
                 for i,v in data do
+                    if type(i) == "string" then continue end
+
                     if i ~= (elements + 1) then
-                        for newIndex = elements+1, (i-1) do
-                            head ..= strformat("%s%s,\n", indent, "nil")
-                        end
+                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, true, root, indents + 1))
+                    else
+                        head ..= strformat("%s%s,\n", indent, tableToString(v, true, root, indents + 1))
                     end
-                    head ..= strformat("%s%s,\n", indent, tableToString(v, true, root, indents + 1))
-                    elements = i
+                    elements += 1
                 end
             else
                 for i,v in data do
@@ -492,13 +493,14 @@ local function tableToString(data, format, root, indents) -- FORKED FROM HYDROXI
         else
             if orderedNumbers then
                 for i,v in data do
+                    if type(i) == "string" then continue end
+
                     if i ~= (elements + 1) then
-                        for newIndex = elements+1, (i-1) do
-                            head ..= strformat("%s%s,\n", indent, "nil")
-                        end
+                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, false, root, indents + 1))
+                    else
+                        head ..= strformat("%s, ", tableToString(v, false, root, indents + 1))
                     end
-                    head ..= strformat("%s, ", tableToString(v, false, root, indents + 1))
-                    elements = i
+                    elements += 1
                 end
             else
                 for i,v in data do
@@ -928,10 +930,19 @@ local function genReturnValuePseudo(returnTable, spyFunc, watermark)
             elseif primTyp == "thread" or primTyp == "function" then
                 varConstructor = "nil"
             elseif primTyp == "number" then
+                local dataStr = tostring(arg)
                 if not match(tostring(arg), "%d") then
-                    varConstructor = ("tonumber(\"" .. tostring(arg) .. "\")")
+                    if arg == inf then
+                        varConstructor = "(1/0)"
+                    elseif arg == neginf then
+                        varConstructor = "(-1/0)"
+                    elseif dataStr == "nan" then
+                        varConstructor = "(0/0)"
+                    else
+                        varConstructor = ("tonumber(\"" .. dataStr .. "\")")
+                    end
                 else
-                    varConstructor = tostring(arg)
+                    varConstructor = dataStr
                 end
             else
                 varConstructor = tostring(arg)
@@ -1609,41 +1620,22 @@ local function createCSDecompileButton(window, call, spyFunc)
 end
 
 local function repeatCall(call, remote, spyFunc, repeatCount)
-
     if spyFunc.Type == "Call" then
-        if call.NilCount == 0 then
-            local func = spyFunc.Function
-            
-            local success, result = pcall(function()
-                if spyFunc.ReturnsValue then
-                    for _ = 1,repeatCount do
-                        spawnFunc(func, remote, unpack(call.Args))
-                    end
-                else
-                    for _ = 1,repeatCount do
-                        func(remote, unpack(call.Args))
-                    end
+        local func = spyFunc.Function
+        
+        local success, result = pcall(function()
+            if spyFunc.ReturnsValue then
+                for _ = 1,repeatCount do
+                    spawnFunc(func, remote, unpack(call.Args, 1, #call.Args + call.NilCount))
                 end
-            end)
-            if not success then
-                pushError("Failed to Repeat Call: " .. tostring(result))
-            end
-        else
-            local success, result = pcall(function()
-                local call = loadstring(genSendPseudo(remote, call, spyFunc))
-                if spyFunc.ReturnsValue then
-                    for _ = 1,repeatCount do
-                        spawnFunc(call)
-                    end
-                else
-                    for _= 1,repeatCount do
-                        call()
-                    end
+            else
+                for _ = 1,repeatCount do
+                    func(remote, unpack(call.Args, 1, #call.Args + call.NilCount))
                 end
-            end)
-            if not success then
-                pushError("Failed to Repeat Call (Variant 2): " .. tostring(result))
             end
+        end)
+        if not success then
+            pushError("Failed to Repeat Call: " .. tostring(result))
         end
     elseif spyFunc.Type == "Callback" then
         local success, result = pcall(function()
@@ -2414,19 +2406,6 @@ local function sendLog(remote, data)
     end
 end
 
-local function processReturnValue(refTable, ...)
-    local args = shallowClone({...}, nil, -1)
-    if args then
-        refTable.Args = args
-        refTable.NilCount = (select("#", ...) - #args)
-    else
-        refTable.Args = false
-        pushError("Return Value Shallow Clone Returned False")
-    end
-
-    return ...
-end
-
 local function addCall(remote, returnValue, spyFunc, caller, callingScript, ...)
     if not callLogs[remote] then
         callLogs[remote] = {
@@ -2437,7 +2416,7 @@ local function addCall(remote, returnValue, spyFunc, caller, callingScript, ...)
     end
     if not callLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
 
-        local args, tableDepth, hasTable = shallowClone({...}, nil, -1) -- 1 deeper total
+        local args, tableDepth, hasTable = shallowClone({...}, -1) -- 1 deeper total
         local argCount = select("#", ...)
 
         if not args or (hasTable and argCount > 7995 or argCount > 7996) or (tableDepth > 0 and ((argCount + tableDepth) > 298)) then
@@ -2452,7 +2431,6 @@ local function addCall(remote, returnValue, spyFunc, caller, callingScript, ...)
             NilCount = (argCount - #args),
             FromSynapse = caller
         }
-        
         sendLog(remote, data)
     end
 end
@@ -2483,7 +2461,7 @@ local function addCallback(remote, method, func)
         oldfunc = hookfunction(func, function(...) -- lclosure, so oth.hook not applicable
             if not Settings.Paused then
                 local spyFunc = spyFunctions[idxs[method]]
-                local args = shallowClone({...}, nil, -1)
+                local args = shallowClone({...}, -1)
                 local argCount = select("#", ...)
 
                 local callingScript = originalCallerCache[remote] or {nil, checkcaller()}
@@ -2500,17 +2478,16 @@ local function addCallback(remote, method, func)
                     FromSynapse = callingScript[2]
                 }
 
-                if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then 
-                    local returnValue = {}
-                    deferFunc(function()
-                        if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                            data.ReturnValue = returnValue
+                if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then
+                    local exactData = pack(oldfunc(...))
+                    local returnData = shallowClone(exactData, -1)
+                    data.ReturnValue = {
+                        Args = returnData, 
+                        NilCount = exactData.n-#exactData
+                    }
+                    deferFunc(sendLog, remote, data)
 
-                            sendLog(remote, data)
-                        end
-                    end)
-
-                    return processReturnValue(returnValue, oldfunc(...))
+                    return unpack(returnData, 1, exactData.n)
                 end
             
                 if otherLogs[remote] and otherLogs[remote].Blocked then return end
@@ -2566,7 +2543,7 @@ local function addConnection(remote, signalType, signal)
                         originalCallerCache[remote] = nil
                         
                         if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
-                            local args = shallowClone({...}, nil, -1)
+                            local args = shallowClone({...}, -1)
                             local argCount = select("#", ...)
                             local data = {
                                 TypeIndex = idxs[signalType],
@@ -2603,10 +2580,7 @@ do -- filter setup
     for _,v in spyFunctions do
         if v.Type == "Callback" then
             tableInsert(newIndexFilters, AllFilter.new({
-                AnyFilter.new({
-                    InstanceTypeFilter.new(1, v.Object),
-                    ArgumentFilter.new(1, nil)
-                }),
+                InstanceTypeFilter.new(1, v.Object),
                 AnyFilter.new({
                     ArgumentFilter.new(2, v.Callback),
                     ArgumentFilter.new(2, v.DeprecatedCallback)
@@ -2711,13 +2685,15 @@ do -- namecall and function hooks
             -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
 
             if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-                local returnValue = {}
-                deferFunc(function(...)
-                    --repeat taskWait() until returnValue.Args
+                local exactData = pack(oldNamecall(remote, ...))
+                local returnData = shallowClone(exactData, -1)
+                local returnValue = {
+                    Args = returnData, 
+                    NilCount = exactData.n-#exactData
+                }
+                deferFunc(addCall, remote, returnValue, spyFunc, checkcaller(), scr, ...)
 
-                    addCall(remote, returnValue, spyFunc, checkcaller(), scr, ...)
-                end, ...) -- I could rewrite the entire system to not need a second thread, but the issue is that then I would need to encorporate all data collection into that function, and essentially make the entire function run on what is currently a new thread, rather than having a new thread running separately from the entire function.
-                return processReturnValue(returnValue, oldNamecall(remote, ...))
+                return unpack(returnData, 1, exactData.n)
             end
 
             deferFunc(addCall, remote, nil, spyFunc, checkcaller(), scr, ...)
@@ -2744,14 +2720,17 @@ do -- namecall and function hooks
                     end
 
                     if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-                        local returnValue = {}
-                        deferFunc(function(...) -- defers until after processReturnValue runs and sets returnValue
-                            
-                            addCall(remote, returnValue, spyFunc, checkcaller(), scr, ...)
-                        end, ...)
-                        return processReturnValue(returnValue, oldFunc(remote, ...))
-                    end
+                        local exactData = pack(oldNamecall(remote, ...))
+                        local returnData = shallowClone(exactData, -1)
 
+                        local returnValue = {
+                            Args = returnData, 
+                            NilCount = exactData.n-#exactData
+                        }
+                        deferFunc(addCall, remote, returnValue, spyFunc, checkcaller(), scr, ...)
+
+                        return unpack(returnData, 1, exactData.n)
+                    end
                     deferFunc(addCall, remote, nil, spyFunc, checkcaller(), scr, ...)
                     --addCall(remote, nil, spyFunc, ...)
                 end

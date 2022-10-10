@@ -367,7 +367,7 @@ local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
     else
         local plr = Players:GetPlayerFromCharacter(instance)
         if plr then
-            if plr == client then
+            if plr:GetDebugId() == clientid then
                 return 'game:GetService("Players").LocalPlayer.Character'
             else
                 if tonumber(sub(plr.Name, 1, 1)) then
@@ -382,7 +382,7 @@ local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
         if _success and result then
             head = ':GetService("' .. instance.ClassName .. '")'
         elseif id == clientid then -- cloneref moment
-            head = '.LocalPlayer' 
+            return 'game:GetService("Players").LocalPlayer' 
         else
             local nonAlphaNum = gsub(name, '[%w_]', '')
             local noPunct = gsub(nonAlphaNum, '[%s%p]', '')

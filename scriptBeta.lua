@@ -30,7 +30,7 @@ local function cleanUpSpy()
     _G.remoteSpyMainWindow = nil
     _G.remoteSpySettingsWindow = nil
     
-    local unHook = syn.oth.unhook
+    local unHook = restorefunction -- syn.oth.unhook unsupported due to complications/limitations
     unHook(Instance.new("RemoteEvent").FireServer)
     unHook(Instance.new("RemoteFunction").InvokeServer)
     unHook(Instance.new("BindableEvent").Fire)
@@ -187,7 +187,7 @@ local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
         return oldFunction(...)
     end, hookFunction)
 
-    oldFunction = othHook(getrawmetatable(toHook)[mtmethod], func)
+    oldFunction = hookmetamethod(toHook, mtmethod, func) --othHook(getrawmetatable(toHook)[mtmethod], func) unsupported right now because of oth.hook complications
     return oldFunction
 end
 
@@ -2415,7 +2415,6 @@ local function addCall(remote, returnValue, spyFunc, caller, callingScript, ...)
         }
     end
     if not callLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-
         local args, tableDepth, hasTable = shallowClone({...}, -1) -- 1 deeper total
         local argCount = select("#", ...)
 
@@ -2740,8 +2739,8 @@ do -- namecall and function hooks
                 return oldFunc(remote, ...)
             end
 
-            oldFunc = filteredOth(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object))
-
+            oldFunc = hookfunction--[[filteredOth]](Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object)) 
+            -- oth.hook unsupported right now because of oth.hook complications
             v.Function = newfunction
         end
     end

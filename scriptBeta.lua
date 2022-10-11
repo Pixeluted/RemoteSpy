@@ -74,6 +74,7 @@ local Settings = {
     MoreRepeatCallOptions = false,
     CacheLimit = true,
     MaxCallAmount = 1000,
+    ArgLimit = 25,
 
     SendPseudocodeToExternal = false,
     PseudocodeLuaUTypes = false,
@@ -1156,7 +1157,7 @@ pushTheme(settingsWindow)
 
 -- settings page init
 local settingsWidth = 310
-local settingsHeight = 301
+local settingsHeight = 312
 settingsWindow.DefaultSize = Vector2.new(settingsWidth, settingsHeight)
 settingsWindow.CanResize = false
 settingsWindow.VisibilityOverride = Settings.AlwaysOnTop
@@ -1258,6 +1259,19 @@ do  -- general Settings
     slider1.OnUpdated:Connect(function(value)
         if value >= 100 and value <= 10000 then -- incase they're mid way through typing it
             Settings.MaxCallAmount = value
+            saveConfig()
+        end
+    end)
+
+    local slider2 = generalTab:IntSlider()
+    slider2.Label = "Max Args"
+    slider2.Min = 10
+    slider2.Max = 100
+    slider2.Value = Settings.ArgLimit
+    slider2.Clamped = true
+    slider2.OnUpdated:Connect(function(value)
+        if value >= 10 and value <= 100 then -- incase they're mid way through typing it
+            Settings.ArgLimit = value
             saveConfig()
         end
     end)
@@ -1959,6 +1973,8 @@ local function makeRemoteViewerLog(call, remote)
         local scrollSize = Vector2.new(width-24-38-14, 24) -- 14 = scrollbar width, plus read above
         local scrollFirstSize = Vector2.new(width-24-38-14-23, 24)
         for i = 1, #call.Args do
+            if i > Settings.ArgLimit then break end
+
             local x = call.Args[i]
 
             local firstLine = (i == 1)
@@ -1980,10 +1996,15 @@ local function makeRemoteViewerLog(call, remote)
             temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
             
             local lineContents = firstLine and temp2:Indent(-1):Button() or temp2:Indent(8):Button()
-            local text, color
-            text, color = getArgString(x, call.Type)
-            lineContents.Label = spaces2 .. text
-            argFrame:SetColor(RenderColorOption.Text, color, 1)
+            if i ~= Settings.ArgLimit then
+                local text, color
+                text, color = getArgString(x, call.Type)
+                lineContents.Label = spaces2 .. text
+                argFrame:SetColor(RenderColorOption.Text, color, 1)
+            else
+                lineContents.Label = spaces2 .. "ARG LIMIT REACHED"
+                argFrame:SetColor(RenderColorOption.Text, Color3.new(1, 0, 0), 1)
+            end
             if totalArgCount < 10 then
                 lineContents.Size = firstLine and normalFirstSize or normalSize 
             else
@@ -2001,11 +2022,13 @@ local function makeRemoteViewerLog(call, remote)
             local lineNum = firstLine and temp:Indent(-7):Button() or temp:Indent(1):Button()
             lineNum.Label = tostring(i)
             lineNum.Size = Vector2.new(32, 24)
-
             --addSpacer(childWindow, 4)
         end
+        local argAmt = #call.Args
         for i = 1, call.NilCount do
-            local firstLine = (i == 1 and #call.Args == 0)
+            if (i + argAmt) > Settings.ArgLimit then break end
+
+            local firstLine = (i == 1 and argAmt == 0)
             local argFrame = (firstLine and firstArgFrame:SameLine()) or childWindow:SameLine()
 
             local topLine = argFrame:Dummy():Indent(8)
@@ -2024,8 +2047,13 @@ local function makeRemoteViewerLog(call, remote)
             temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
 
             local lineContents = firstLine and temp2:Indent(-1):Button() or temp2:Indent(8):Button()
-            lineContents.Label = spaces2 .. "HIDDEN NIL"
-            argFrame:SetColor(RenderColorOption.Text, colorHSV(258/360, 0.8, 1), 1)
+            if (i + argAmt) == Settings.ArgLimit then
+                lineContents.Label = spaces2 .. "ARG LIMIT REACHED"
+                argFrame:SetColor(RenderColorOption.Text, Color3.new(1, 0, 0), 1)
+            else
+                lineContents.Label = spaces2 .. "HIDDEN NIL"
+                argFrame:SetColor(RenderColorOption.Text, colorHSV(258/360, 0.8, 1), 1)
+            end
             if totalArgCount < 10 then
                 lineContents.Size = firstLine and normalFirstSize or normalSize
             else
@@ -2045,9 +2073,8 @@ local function makeRemoteViewerLog(call, remote)
             temp:SetColor(RenderColorOption.Text, colorHSV(179/360, 0.8, 1), 1)
 
             local lineNum = firstLine and temp:Indent(-7):Button() or temp:Indent(1):Button()
-            lineNum.Label = tostring(i + #call.Args)
+            lineNum.Label = tostring(i + argAmt)
             lineNum.Size = Vector2.new(32, 24)
-
             --addSpacer(childWindow, 4)
         end
         addSpacer(childWindow, 4) -- account for the space at the end of the arg list so when you scroll all the way down the padding looks good
@@ -2403,7 +2430,7 @@ local function sendLog(remote, data)
     end
 end
 
-local function addCall(remote, returnValue, spyFunc, caller, callingScript, ...)
+local function addCall(remote, returnValue, spyFunc, caller, ...)
     if not callLogs[remote] then
         callLogs[remote] = {
             Blocked = false,
@@ -2415,7 +2442,7 @@ local function addCall(remote, returnValue, spyFunc, caller, callingScript, ...)
         local args, tableDepth, hasTable = shallowClone({...}, -1) -- 1 deeper total
         local argCount = select("#", ...)
 
-        if not args or (hasTable and argCount > 7995 or argCount > 7996) or (tableDepth > 0 and ((argCount + tableDepth) > 298)) then
+        if not args or argCount > 7995 or (tableDepth > 0 and ((argCount + tableDepth) > 298)) then
             return
         end
 
@@ -2455,46 +2482,49 @@ local function addCallback(remote, method, func)
     if func then
         local oldfunc
         oldfunc = hookfunction(func, function(...) -- lclosure, so oth.hook not applicable
-            if not Settings.Paused then
-                local spyFunc = spyFunctions[idxs[method]]
-                local args = shallowClone({...}, -1)
-                local argCount = select("#", ...)
+            if #debug.getcallstack() == 2 then -- check that the function is actually being called by a cclosure
+                if not Settings.Paused then
+                    local spyFunc = spyFunctions[idxs[method]]
+                    local args = shallowClone({...}, -1)
+                    local argCount = select("#", ...)
 
-                local callingScript = originalCallerCache[remote] or {nil, checkcaller()}
+                    local callingScript = originalCallerCache[remote] or {nil, checkcaller()}
 
-                originalCallerCache[remote] = nil
+                    originalCallerCache[remote] = nil
 
-                local data = {
-                    TypeIndex = idxs[method],
-                    CallbackScript = getcallingscript(),
-                    Script = callingScript[1],
-                    Args = args, -- 2 deeper total
-                    CallbackLog = otherLogs[remote],
-                    NilCount = (argCount - #args),
-                    FromSynapse = callingScript[2]
-                }
-
-                if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then
-                    local exactData = pack(oldfunc(...))
-                    local returnData = shallowClone(exactData, -1)
-                    data.ReturnValue = {
-                        Args = returnData, 
-                        NilCount = exactData.n-#exactData
+                    local data = {
+                        TypeIndex = idxs[method],
+                        CallbackScript = getcallingscript(),
+                        Script = callingScript[1],
+                        Args = args, -- 2 deeper total
+                        CallbackLog = otherLogs[remote],
+                        NilCount = (argCount - #args),
+                        FromSynapse = callingScript[2]
                     }
-                    deferFunc(sendLog, remote, data)
 
-                    return unpack(returnData, 1, exactData.n)
-                end
-            
-                if otherLogs[remote] and otherLogs[remote].Blocked then return end
+                    if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then
+                        local exactData = pack(oldfunc(...))
+                        local returnData = shallowClone(exactData, -1)
+                        data.ReturnValue = {
+                            Args = returnData, 
+                            NilCount = exactData.n-#exactData
+                        }
+                        deferFunc(sendLog, remote, data)
 
-                deferFunc(function(...)
-                    if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                        sendLog(remote, data)
+                        return unpack(returnData, 1, exactData.n)
                     end
-                end, ...)
-            elseif otherLogs[remote] and otherLogs[remote].Blocked then 
-                return
+                
+
+                    deferFunc(function(...)
+                        if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                            sendLog(remote, data)
+                        end
+                    end, ...)
+                end
+                
+                if otherLogs[remote] and otherLogs[remote].Blocked then 
+                    return
+                end
             end
 
             return oldfunc(...)
@@ -2670,9 +2700,8 @@ end
 do -- namecall and function hooks
     local oldNamecall
     oldNamecall = newHookMetamethod(game, "__namecall", newcclosure(function(remote, ...)
-        if not Settings.Paused then
+        if not Settings.Paused and select("#", ...) < 7996 then
             local spyFunc = spyFunctions[idxs[getnamecallmethod()]]
-            local scr = getcallingscript()
 
             if spyFunc.Type == "Call" and spyFunc.FiresLocally then
                 local caller = checkcaller()
@@ -2681,18 +2710,18 @@ do -- namecall and function hooks
             -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
 
             if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-                local exactData = pack(oldNamecall(remote, ...))
+                local exactData = pack(oldNamecall(remote, ...)) -- needs to be reworked
                 local returnData = shallowClone(exactData, -1)
                 local returnValue = {
                     Args = returnData, 
                     NilCount = exactData.n-#exactData
                 }
-                deferFunc(addCall, remote, returnValue, spyFunc, checkcaller(), scr, ...)
+                deferFunc(addCall, remote, returnValue, spyFunc, checkcaller(), ...)
 
                 return unpack(returnData, 1, exactData.n)
             end
 
-            deferFunc(addCall, remote, nil, spyFunc, checkcaller(), scr, ...)
+            deferFunc(addCall, remote, nil, spyFunc, checkcaller(), ...)
             --addCall(remote, nil, spyFunc, ...)
         end
     
@@ -2703,19 +2732,16 @@ do -- namecall and function hooks
 
     for _,v in spyFunctions do
         if v.Type == "Call" then
-
             local oldFunc
             local newfunction = function(remote, ...)
-                if not Settings.Paused then
-                    local spyFunc = v
-                    local scr = getcallingscript()
+                if not Settings.Paused and select("#", ...) < 7996 then
 
-                    if spyFunc.Type == "Call" and spyFunc.FiresLocally then
+                    if v.Type == "Call" and v.FiresLocally then
                         local caller = checkcaller()
                         originalCallerCache[remote] = originalCallerCache[remote] or {(not caller and scr), caller}
                     end
 
-                    if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
+                    if v.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
                         local exactData = pack(oldNamecall(remote, ...))
                         local returnData = shallowClone(exactData, -1)
 
@@ -2723,11 +2749,11 @@ do -- namecall and function hooks
                             Args = returnData, 
                             NilCount = exactData.n-#exactData
                         }
-                        deferFunc(addCall, remote, returnValue, spyFunc, checkcaller(), scr, ...)
+                        deferFunc(addCall, remote, returnValue, v, checkcaller(), ...)
 
                         return unpack(returnData, 1, exactData.n)
                     end
-                    deferFunc(addCall, remote, nil, spyFunc, checkcaller(), scr, ...)
+                    deferFunc(addCall, remote, nil, v, checkcaller(), ...)
                     --addCall(remote, nil, spyFunc, ...)
                 end
             

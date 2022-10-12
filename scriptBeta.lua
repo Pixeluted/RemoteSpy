@@ -2448,7 +2448,7 @@ local function addCall(remote, returnValue, spyFunc, caller, ...)
 
         local data = {
             TypeIndex = idxs[spyFunc.Name],
-            Script = callingScript,
+            Script = getcallingscript(),
             Args = args, -- 2 deeper total
             ReturnValue = returnValue,
             NilCount = (argCount - #args),

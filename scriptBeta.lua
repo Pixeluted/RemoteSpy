@@ -2742,7 +2742,7 @@ do -- namecall and function hooks
                     end
 
                     if v.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-                        local exactData = pack(oldNamecall(remote, ...))
+                        local exactData = pack(oldFunc(remote, ...))
                         local returnData = shallowClone(exactData, -1)
 
                         local returnValue = {

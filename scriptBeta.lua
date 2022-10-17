@@ -4,6 +4,11 @@
     -- Make main window remote list use popups (depends on OnRightClick)
     -- Make arg list use right click (depends on defcon)
 
+local mt = getrawmetatable(game)
+if islclosure(mt.__namecall) or islclosure(mt.__index) or islclosure(mt.__newindex) then
+    error("script incompatibility detected, one of your scripts has set the game's metamethods to a luaclosure, please run the remotespy prior to that script")
+end
+
 if not RenderWindow then
     error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
 end
@@ -25,13 +30,12 @@ local function cleanUpSpy()
     _G.remoteSpyMainWindow = nil
     _G.remoteSpySettingsWindow = nil
     
-    local unHook = restorefunction -- syn.oth.unhook unsupported due to complications/limitations
+    local unHook = syn.oth.unhook
     unHook(Instance.new("RemoteEvent").FireServer)
     unHook(Instance.new("RemoteFunction").InvokeServer)
     unHook(Instance.new("BindableEvent").Fire)
     unHook(Instance.new("BindableFunction").Invoke)
 
-    local mt = getrawmetatable(game)
     unHook(mt.__namecall)
     unHook(mt.__index)
     unHook(mt.__newindex)
@@ -68,21 +72,23 @@ local Settings = {
     AlwaysOnTop = true,
 
     CallbackButtons = false,
-    DecompileScriptsToExternal = false,
-    ListConnectionScriptsToExternal = false,
     LogHiddenRemotesCalls = false,
     MoreRepeatCallOptions = false,
     CacheLimit = true,
     MaxCallAmount = 1000,
     ArgLimit = 25,
 
-    SendPseudocodeToExternal = false,
+    DecompilerOutput = 1,
+    ConnectionsOutput = 1,
+    PseudocodeOutput = 1,
+
     PseudocodeLuaUTypes = false,
-    PseudocodeWatermark = 2,
+    PseudocodeWatermark = true,
     PseudocodeInliningMode = 2,
     PseudocodeInlineRemote = true,
     PseudocodeInlineHiddenNils = true,
-    PseudocodeFormatTables = true
+    PseudocodeFormatTables = true,
+    DebugIdMode = 1
 }
 
 local function saveConfig()
@@ -108,6 +114,8 @@ if isfile("Remote Spy Settings/Icons.ttf") then
 end
 
 local fontData = syn.request({ Url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/Icons.ttf" }).Body
+
+Drawing:WaitForRenderer()
 
 local RemoteIconFont = DrawFont.Register(fontData, {
     Scale = false,
@@ -185,7 +193,7 @@ local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
         return oldFunction(...)
     end, hookFunction)
 
-    oldFunction = hookmetamethod(toHook, mtmethod, func) --othHook(getrawmetatable(toHook)[mtmethod], func) unsupported right now because of oth.hook complications
+    oldFunction = othHook(getrawmetatable(toHook)[mtmethod], func) -- hookmetamethod(toHook, mtmethod, func) 
     return oldFunction
 end
 
@@ -200,12 +208,12 @@ local function filteredOth(toHook, hookFunction, filter)
     return oldFunction
 end
 
-local function pushError(message: string)
+local function pushError(title: string, message: string)
     syn.toast_notification({
         Type = ToastType.Error,
         Duration = 5,
-        Title = "Remote Spy",
-        Content = message
+        Title = message and title or "RemoteSpy",
+        Content = message or title
     })
 end
 
@@ -218,10 +226,23 @@ local function pushSuccess(message: string)
     })
 end
 
+local function outputData(source, destination, destinationTitle, successMessage)
+    if destination == 1 then
+        setclipboard(source)
+        pushSuccess(successMessage .. " to Clipboard")
+    elseif destination == 2 then
+        createuitab(destinationTitle, source)
+        pushSuccess(successMessage .. " to External UI")
+    elseif destination == 3 then
+        pushError("Internal UI Output Not Yet Supported")
+    end
+end
+
 local function shallowClone(myTable: table, stack: number) -- cyclic check built in
     stack = stack or 0 -- you can offset stack by setting the starting parameter to a number
     local newTable = {}
     local hasTable = false
+    local hasInstance = false
 
     if #myTable > 0 then stack += 1 end -- replacing the old method because stack doesnt increase unless args are added
 
@@ -233,7 +254,8 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
         if primType == "table" then
             hasTable = true
 
-            local newTab, maxStack = shallowClone(v, stack)
+            local newTab, maxStack, _, subHasInstance = shallowClone(v, stack)
+            hasInstance = hasInstance or subHasInstance
             stack = maxStack
             
             if newTab then
@@ -244,6 +266,9 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
         elseif primType == "userdata" then
             local mainType = typeof(v)
             if mainType == "Instance" then
+                if not hasInstance and v:IsAncestorOf(game) then
+                    hasInstance = true
+                end
                 newTable[i] = cloneref(v)
             elseif mainType == "userdata" then -- newproxy()
                 newTable[i] = nil
@@ -263,7 +288,7 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
         end
     end
     
-    return newTable, stack, hasTable
+    return newTable, stack, hasTable, hasInstance
 end
 
 local function pushTheme(window: RenderChildBase)
@@ -719,16 +744,25 @@ local function getCountFromTable(tab: table, target)
     return count
 end
 
-local function genSendPseudo(rem, call, spyFunc, watermark)
-    local watermark = watermark and "--Pseudocode Generated by GameGuy's Remote Spy\n\n" or ""
+local function genSendPseudo(rem, call, spyFunc)
+    local watermark = Settings.PseudocodeWatermark and "--Pseudocode Generated by GameGuy's Remote Spy\n" or ""
+
+    if Settings.DebugIdMode == 3 then
+        watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
+    elseif Settings.DebugIdMode == 2 and call.HasInstance then
+        watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getnilinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
+    end
+
+    local pathStr = getInstancePath(rem)
+    local remPath = (Settings.DebugIdMode == 3) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr) or pathStr
 
     if #call.Args == 0 and call.NilCount == 0 then
         if spyFunc.Type == "Call" then
-            return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n\n" .. (spyFunc.ReturnsValue and "local returnValue = " or "") .. "remote:") or (getInstancePath(rem) .. ":")) .. spyFunc.Method .."()"
+            return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n\n" .. (spyFunc.ReturnsValue and "local returnValue = " or "") .. "remote:") or (remPath .. ":")) .. spyFunc.Method .."()"
         elseif spyFunc.Type == "Connection" then
-            return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n\nfiresignal(remote.") or ("firesignal(" .. getInstancePath(rem) ".")) .. spyFunc.Connection ..")"
+            return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n\nfiresignal(remote.") or ("firesignal(" .. remPath ".")) .. spyFunc.Connection ..")"
         elseif spyFunc.Type == "Callback" then
-            return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n\ngetcallbackmember(remote, ") or ("getcallbackmember(" .. getInstancePath(rem) .. ", ")) .. spyFunc.Callback ..")()"
+            return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n\ngetcallbackmember(remote, \"") or ("getcallbackmember(" .. remPath .. ", \"")) .. spyFunc.Callback .."\")()"
         end
     else
         local argCalls = {}
@@ -766,7 +800,18 @@ local function genSendPseudo(rem, call, spyFunc, watermark)
             local varConstructor = ""
 
             if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
-                varConstructor = (typ == "Instance" and getInstancePath(arg)) or userdataValue(arg)
+                if typeof(arg) == "Instance" then
+                    local str = getInstancePath(arg)
+                    if Settings.DebugIdMode == 3 then
+                        varConstructor = ("GetInstanceFromDebugId(\"" .. arg:GetDebugId() .."\")") .. (" -- Original Path: " .. str)
+                    elseif Settings.DebugIdMode == 2 and sub(str, -1, -2) == "]]" then
+                        varConstructor = ("GetInstanceFromDebugId(\"" .. arg:GetDebugId() .."\")") .. (" -- Original Path: " .. str)
+                    else
+                        varConstructor = str    
+                    end
+                else
+                    varConstructor = userdataValue(arg)
+                end
             elseif primTyp == "table" then
                 varConstructor = tableToString(arg, Settings.PseudocodeFormatTables)
             elseif primTyp == "string" then
@@ -817,11 +862,11 @@ local function genSendPseudo(rem, call, spyFunc, watermark)
             end
         end
         if spyFunc.Type == "Call" then
-            pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n" .. (spyFunc.ReturnsValue and "local returnValue = " or "") .. "remote:" .. spyFunc.Method .. "(") or (getInstancePath(rem) .. ":" .. spyFunc.Method .. "(")
+            pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n" .. (spyFunc.ReturnsValue and "local returnValue = " or "") .. "remote:" .. spyFunc.Method .. "(") or (remPath .. ":" .. spyFunc.Method .. "(")
         elseif spyFunc.Type == "Connection" then
-            pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n" .. (spyFunc.ReturnsValue--[[yes i know this is redundant]] and "local returnValue = " or "") .. "firesignal(remote." .. spyFunc.Connection .. ", ") or ("firesignal(" .. getInstancePath(rem) .. "." .. spyFunc.Connection .. ", ")
+            pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n" .. (spyFunc.ReturnsValue--[[yes i know this is redundant]] and "local returnValue = " or "") .. "firesignal(remote." .. spyFunc.Connection .. ", ") or ("firesignal(" .. remPath .. "." .. spyFunc.Connection .. ", ")
         elseif spyFunc.Type == "Callback" then
-            pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\n" .. (spyFunc.ReturnsValue and "local returnValue = " or "") .. "getcallbackmember(remote." .. spyFunc.Callback .. ")(") or ("getcallbackmember(" .. getInstancePath(rem) .. ", " .. spyFunc.Callback .. ")(")
+            pseudocode ..= Settings.PseudocodeInlineRemote and ((addedArg and "\n" or "") .. "local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n" .. (spyFunc.ReturnsValue and "local returnValue = " or "") .. "getcallbackmember(remote, \"" .. spyFunc.Callback .. "\")(") or ("getcallbackmember(" .. remPath .. ", \"" .. spyFunc.Callback .. "\")(")
         end
 
         if Settings.PseudocodeInliningMode == 4 then
@@ -876,8 +921,8 @@ local function genSendPseudo(rem, call, spyFunc, watermark)
     end
 end
 
-local function genReturnValuePseudo(returnTable, spyFunc, watermark)
-    local watermark = watermark and "--Pseudocode Generated by GameGuy's Remote Spy\n\n" or ""
+local function genReturnValuePseudo(returnTable, spyFunc)
+    local watermark = Settings.PseudocodeWatermark and "--Pseudocode Generated by GameGuy's Remote Spy\n\n" or ""
 
     if #returnTable.Args == 0 and returnTable.NilCount == 0 then
         return watermark .. "return"
@@ -916,7 +961,7 @@ local function genReturnValuePseudo(returnTable, spyFunc, watermark)
             local varConstructor = ""
 
             if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
-                varConstructor = (typ == "Instance" and getInstancePath(arg)) or userdataValue(arg)
+                varConstructor = userdataValue(arg)
             elseif primTyp == "table" then
                 varConstructor = tableToString(arg, Settings.PseudocodeFormatTables)
             elseif primTyp == "string" then
@@ -1023,10 +1068,12 @@ end
 local function genRecvPseudo(rem, call, spyFunc, watermark)
     local watermark = watermark and "--Pseudocode Generated by GameGuy's Remote Spy\n\n" or ""
 
+    local remPath = getInstancePath(rem)
+
     if spyFunc.Type == "Connection" then
         local pseudocode = ""
         
-        pseudocode ..= Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "") .." = " .. getInstancePath(rem) .. "\nremote." .. spyFunc.Connection .. ":Connect(function(") or (getInstancePath(rem) .. "." .. spyFunc.Connection .. ":Connect(function(")
+        pseudocode ..= Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "") .." = " .. remPath .. "\nremote." .. spyFunc.Connection .. ":Connect(function(") or (remPath .. "." .. spyFunc.Connection .. ":Connect(function(")
         for i = 1,#call.Args do
             pseudocode ..= "p" .. tostring(i) .. ", "
         end
@@ -1043,7 +1090,7 @@ local function genRecvPseudo(rem, call, spyFunc, watermark)
     elseif spyFunc.Type == "Callback" then
         local pseudocode = ""
 
-        pseudocode ..= Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. getInstancePath(rem) .. "\nremote." .. spyFunc.Callback .. " = function(") or (getInstancePath(rem) .. "." .. spyFunc.Callback .. " = function(")
+        pseudocode ..= Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\nremote." .. spyFunc.Callback .. " = function(") or (remPath .. "." .. spyFunc.Callback .. " = function(")
         for i = 1,#call.Args do
             pseudocode ..= "p"..tostring(i) .. ", "
         end
@@ -1157,7 +1204,7 @@ pushTheme(settingsWindow)
 
 -- settings page init
 local settingsWidth = 310
-local settingsHeight = 312
+local settingsHeight = 300
 settingsWindow.DefaultSize = Vector2.new(settingsWidth, settingsHeight)
 settingsWindow.CanResize = false
 settingsWindow.VisibilityOverride = Settings.AlwaysOnTop
@@ -1197,7 +1244,7 @@ local tabFrame = topBar:SameLine()
 local settingsTabs = tabFrame:Indent(-1):TabMenu()
 local generalTab = settingsTabs:Add("General")
 local pseudocodeTab = settingsTabs:Add("Pseudocode")
-local themeTab = settingsTabs:Add("Theme")
+local outputTab = settingsTabs:Add("Output")
 local creditsTab = settingsTabs:Add("Credits")
 do  -- general Settings
     local checkBox = generalTab:CheckBox()
@@ -1215,22 +1262,6 @@ do  -- general Settings
                 updateLines(spyFunc.Name, false)
             end
         end
-        saveConfig()
-    end))
-
-    local checkBox2 = generalTab:CheckBox()
-    checkBox2.Label = "Decompile Scripts to External UI"
-    checkBox2.Value = Settings.DecompileScriptsToExternal
-    tableInsert(_G.remoteSpyGuiConnections, checkBox2.OnUpdated:Connect(function(value)
-        Settings.DecompileScriptsToExternal = value
-        saveConfig()
-    end))
-
-    local checkBox3 = generalTab:CheckBox()
-    checkBox3.Label = "List Connection Scripts to External UI"
-    checkBox3.Value = Settings.ListConnectionScriptsToExternal
-    tableInsert(_G.remoteSpyGuiConnections, checkBox3.OnUpdated:Connect(function(value)
-        Settings.ListConnectionScriptsToExternal = value
         saveConfig()
     end))
 
@@ -1296,37 +1327,28 @@ do  -- general Settings
 end -- general settings
 
 do -- pseudocode settings
-    local checkBox = pseudocodeTab:CheckBox()
-    checkBox.Label = "Send Pseudocode To External UI"
-    checkBox.Value = Settings.SendPseudocodeToExternal
-    tableInsert(_G.remoteSpyGuiConnections, checkBox.OnUpdated:Connect(function(value)
-        Settings.SendPseudocodeToExternal = value
+
+    local checkBox1 = pseudocodeTab:CheckBox()
+    checkBox1.Label = "Pseudocode Watermark"
+    checkBox1.Value = Settings.PseudocodeWatermark
+    tableInsert(_G.remoteSpyGuiConnections, checkBox1.OnUpdated:Connect(function(value)
+        Settings.PseudocodeWatermark = value
         saveConfig()
     end))
 
     local checkBox2 = pseudocodeTab:CheckBox()
-    checkBox2.Label = "Use LuaU Type Declaration in Pseudocode"
+    checkBox2.Label = "Use LuaU Type Declarations"
     checkBox2.Value = Settings.PseudocodeLuaUTypes
     tableInsert(_G.remoteSpyGuiConnections, checkBox2.OnUpdated:Connect(function(value)
         Settings.PseudocodeLuaUTypes = value
         saveConfig()
     end))
 
-    pseudocodeTab:Label("Pseudocode Watermark")
-    local combo1 = pseudocodeTab:Combo()
-    combo1.Items = { "Off", "External UI Only", "Always On" }
-    combo1.SelectedItem = Settings.PseudocodeWatermark
-    tableInsert(_G.remoteSpyGuiConnections, combo1.OnUpdated:Connect(function(selection)
-        Settings.PseudocodeWatermark = selection
-        saveConfig()
-    end))
-
-    pseudocodeTab:Label("Pseudocode Inlining Mode")
-    local combo2 = pseudocodeTab:Combo()
-    combo2.Items = { "Everything", "Tables And Userdatas", "Tables Only", "Nothing" }
-    combo2.SelectedItem = Settings.PseudocodeInliningMode
-    tableInsert(_G.remoteSpyGuiConnections, combo2.OnUpdated:Connect(function(selection)
-        Settings.PseudocodeInliningMode = selection
+    local checkBox5 = pseudocodeTab:CheckBox()
+    checkBox5.Label = "Format Tables"
+    checkBox5.Value = Settings.PseudocodeFormatTables
+    tableInsert(_G.remoteSpyGuiConnections, checkBox5.OnUpdated:Connect(function(value)
+        Settings.PseudocodeFormatTables = value
         saveConfig()
     end))
 
@@ -1346,17 +1368,52 @@ do -- pseudocode settings
         saveConfig()
     end))
 
-    local checkBox5 = pseudocodeTab:CheckBox()
-    checkBox5.Label = "Format Tables"
-    checkBox5.Value = Settings.PseudocodeFormatTables
-    tableInsert(_G.remoteSpyGuiConnections, checkBox5.OnUpdated:Connect(function(value)
-        Settings.PseudocodeFormatTables = value
+    pseudocodeTab:Label("Pseudocode Inlining Mode")
+    local combo2 = pseudocodeTab:Combo()
+    combo2.Items = { "Everything", "Tables And Userdatas", "Tables Only", "Nothing" }
+    combo2.SelectedItem = Settings.PseudocodeInliningMode
+    tableInsert(_G.remoteSpyGuiConnections, combo2.OnUpdated:Connect(function(selection)
+        Settings.PseudocodeInliningMode = selection
+        saveConfig()
+    end))
+
+    pseudocodeTab:Label("Instance Tracker")
+    local combo3 = pseudocodeTab:Combo()
+    combo3.Items = { "Off", "Nil Parented Only", "All Instances" }
+    combo3.SelectedItem = Settings.DebugIdMode
+    tableInsert(_G.remoteSpyGuiConnections, combo3.OnUpdated:Connect(function(selection)
+        Settings.DebugIdMode = selection
         saveConfig()
     end))
 end -- pseudocode settings
 
-do -- theme settings
-    themeTab:Label("Hah No.")
+do -- output settings
+    outputTab:Label("Pseudocode Output")
+    local combo1 = outputTab:Combo()
+    combo1.Items = { "Clipboard", "External UI", "Internal UI (Not Implemented)" }
+    combo1.SelectedItem = Settings.PseudocodeOutput
+    tableInsert(_G.remoteSpyGuiConnections, combo1.OnUpdated:Connect(function(selection)
+        Settings.PseudocodeOutput = selection
+        saveConfig()
+    end))
+
+    outputTab:Label("Decompiled Script Output")
+    local combo2 = outputTab:Combo()
+    combo2.Items = { "Clipboard", "External UI", "Internal UI (Not Implemented)" }
+    combo2.SelectedItem = Settings.DecompilerOutput
+    tableInsert(_G.remoteSpyGuiConnections, combo2.OnUpdated:Connect(function(selection)
+        Settings.DecompilerOutput = selection
+        saveConfig()
+    end))
+
+    outputTab:Label("Connections List Output")
+    local combo3 = outputTab:Combo()
+    combo3.Items = { "Clipboard", "External UI", "Internal UI (Not Implemented)" }
+    combo3.SelectedItem = Settings.ConnectionsOutput
+    tableInsert(_G.remoteSpyGuiConnections, combo3.OnUpdated:Connect(function(selection)
+        Settings.ConnectionsOutput = selection
+        saveConfig()
+    end))
 end -- theme settings
 
 do -- credits
@@ -1443,7 +1500,7 @@ do -- topbar code
     remoteNameFrame:SetColor(RenderColorOption.ButtonActive, black, 0)
     remoteNameFrame:SetColor(RenderColorOption.ButtonHovered, black, 0)
     local remoteName = remoteNameFrame:Indent(26):Button()
-    remoteName.Size = Vector2.new(150, 24)
+    remoteName.Size = Vector2.new(300, 24)
     remoteName.Label = "RemoteEvent"
 
     local remoteIconFrame = topBar:Dummy():WithFont(RemoteIconFont)
@@ -1546,8 +1603,7 @@ do -- button bar code
         if currentSelectedRemote then
             local str = getInstancePath(currentSelectedRemote)
             if type(str) == "string" then
-                setclipboard(str)
-                pushSuccess("Copied Path to Clipboard")
+                outputData(str, 1, "", "Copied Path")
             else
                 pushError("Failed to Copy Path")
             end
@@ -1584,8 +1640,7 @@ local function createCSButton(window, call, spyFunc)
         con = button.OnUpdated:Connect(function()
             local str = call.Script and getInstancePath(call.Script) -- not sure if getcallingscript can return a ModuleScript, I assume it can't, but adding this just in case
             if type(str) == "string" then
-                setclipboard(str)
-                pushSuccess("Copied Calling Script to Clipboard")
+                outputData(str, 1, "", "Copied Calling Script")
             else
                 pushError("Failed to get Calling Script")
             end
@@ -1607,22 +1662,17 @@ local function createCSDecompileButton(window, call, spyFunc)
     local con = nil
     if not (spyFunc.HasNoCaller or call.FromSynapse) then
         con = button.OnUpdated:Connect(function()
-            if not pcall(function()
+            local suc, res = pcall(function()
                 local str = decompile(call.Script)
                 local scriptName = call.Script and getInstancePath(call.Script)
                 if type(str) == "string" then
-                    if Settings.DecompileScriptsToExternal then
-                        createuitab(scriptName or "Script Not Found", str)
-                        pushSuccess("Decompiled Calling Script to External UI")
-                    else
-                        pushSuccess("Decompiled Calling Script to Clipboard")
-                        setclipboard(str)
-                    end
+                    outputData(str, Settings.DecompilerOutput, scriptName, "Decompiled Calling Script")
                 else
                     pushError("Failed to Decompile Calling Script2")
                 end
-            end) then
-                pushError("Failed to Decompile Calling Script")
+            end)
+            if not suc then
+                pushError("Failed to Decompile Calling Script", res)
             end
         end)
         tableInsert(_G.remoteSpyGuiConnections, con)
@@ -1646,25 +1696,26 @@ local function repeatCall(call, remote, spyFunc, repeatCount)
             end
         end)
         if not success then
-            pushError("Failed to Repeat Call: " .. tostring(result))
+            pushError("Failed to Repeat Call", result)
         end
     elseif spyFunc.Type == "Callback" then
         local success, result = pcall(function()
             for _ = 1,repeatCount do
-                spawnFunc(call.CallbackLog.CurrentFunction, unpack(call.Args))
+                spawnFunc(call.CallbackLog.CurrentFunction, unpack(call.Args, 1, #call.Args + call.NilCount)) -- always spawned to make callstack look legit
             end
         end)
         if not success then
-            pushError("Failed to Repeat Callback Call")
+            pushError("Failed to Repeat Callback Call", result)
         end
     elseif spyFunc.Type == "Connection" then
         local success, result = pcall(function()
             for _ = 1,repeatCount do
-                cfiresignal(call.Signal, unpack(call.Args))
+                originalCallerCache[remote] = {nil, true}
+                firesignal(call.Signal, unpack(call.Args, 1, #call.Args + call.NilCount)) -- cfiresignal has some vararg issues
             end
         end)
         if not success then
-            pushError("Failed to Repeat Connection")
+            pushError("Failed to Repeat Connection", result)
         end
     end
 end
@@ -1685,16 +1736,11 @@ local function createGenSendPCButton(window, call, remote, spyFunc)
     local button = window:Selectable()
     button.Label = "Generate Calling Pseudocode"
     local con = button.OnUpdated:Connect(function()
-        if not pcall(function()
-            if Settings.SendPseudocodeToExternal then
-                createuitab("RS Pseudocode", genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 2))
-                pushSuccess("Generated Pseudocode to External UI")
-            else
-                setclipboard(genSendPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 3)) -- no pseudocode watermark when setting to clipboard
-                pushSuccess("Generated Pseudocode to Clipboard")
-            end
-        end) then
-            pushError("Failed to Generate Pseudocode")
+        local suc, ret = pcall(function()
+            outputData(genSendPseudo(remote, call, spyFunc), Settings.PseudocodeOutput, "RS Pseudocode", "Generated Pseudocode")
+        end)
+        if not suc then
+            pushError("Failed to Generate Pseudocode", ret)
         end
     end)
     tableInsert(_G.remoteSpyGuiConnections, con)
@@ -1713,16 +1759,11 @@ local function createGenRecvPCButton(window, call, remote, spyFunc)
     local con 
     if spyFunc.Type ~= "Call" then
         con = button.OnUpdated:Connect(function()
-            if not pcall(function()
-                if Settings.SendPseudocodeToExternal then
-                    createuitab("RS Pseudocode", genRecvPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 2))
-                    pushSuccess("Generated Pseudocode to External UI")
-                else
-                    setclipboard(genRecvPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark == 3)) -- no pseudocode watermark when setting to clipboard
-                    pushSuccess("Generated Pseudocode to Clipboard")
-                end
-            end) then
-                pushError("Failed to Generate Pseudocode")
+            local suc, res = pcall(function()
+                outputData(genRecvPseudo(remote, call, spyFunc, Settings.PseudocodeWatermark), Settings.PseudocodeOutput, "RS Pseudocode", "Generated Pseudocode")
+            end)
+            if not suc then
+                pushError("Failed to Generate Pseudocode", res)
             end
         end)
         tableInsert(_G.remoteSpyGuiConnections, con)
@@ -1742,20 +1783,15 @@ local function createGetConnectionScriptsButton(window, call, spyFunc)
     local con
     if spyFunc.Type == "Connection" then
         con = button.OnUpdated:Connect(function()
-            if not pcall(function()
+            local suc, res = pcall(function()
                 local str = "WARNING, THESE VALUES MAY HAVE BEEN TAMPERED WITH\n\n"
                 for i,v in call.Scripts do
                     str ..=  "[x" .. tostring(v) .. "]: " .. getInstancePath(i) .. "\n"
                 end
-                if Settings.ListConnectionScriptsToExternal then
-                    createuitab("Connection Scripts", str)
-                    pushSuccess("Listed Connections' Creator-Scripts in External UI")
-                else
-                    setclipboard(str)
-                    pushSuccess("Set Connections' Creator-Scripts List to Clipboard")
-                end
-            end) then
-                pushError("Failed to Get Connection Scripts")
+                outputData(str, Settings.ConnectionsOutput, "Connection Scripts", "Send Connections' Creator-Scripts List")
+            end)
+            if not suc then
+                pushError("Failed to Get Connection Scripts", res)
             end
         end)
         tableInsert(_G.remoteSpyGuiConnections, con)
@@ -1775,21 +1811,16 @@ local function createGetRetValButton(window, call, spyFunc)
     local con = nil
     if spyFunc.ReturnsValue then
         con = button.OnUpdated:Connect(function()
-            if not pcall(function()
+            local suc, res = pcall(function()
                 local ret = call.ReturnValue
                 if ret.Args then
-                    if Settings.SendPseudocodeToExternal then
-                        createuitab("RS Return Value", genReturnValuePseudo(ret, spyFunc, Settings.PseudocodeWatermark == 2))
-                        pushSuccess("Generated Return Value to External UI")
-                    else
-                        setclipboard(genReturnValuePseudo(ret, spyFunc, Settings.PseudocodeWatermark == 3)) -- no pseudocode watermark when setting to clipboard
-                        pushSuccess("Generated Return Value to Clipboard")
-                    end
+                    outputData(genReturnValuePseudo(ret, spyFunc), Settings.PseudocodeOutput, "RS Return Value", "Generated Return Value")
                 else
                     pushError("Failed to Get Return Value")
                 end
-            end) then
-                pushError("Failed to Get Return Value")
+            end)
+            if not suc then
+                pushError("Failed to Get Return Value", res)
             end
         end)
         tableInsert(_G.remoteSpyGuiConnections, con)
@@ -1811,8 +1842,7 @@ local function createCBButton(window, call, spyFunc)
         con = button.OnUpdated:Connect(function()
             local str = call.CallbackScript and getInstancePath(call.CallbackScript) -- not sure if getcallingscript can return a ModuleScript, I assume it can't, but adding this just in case
             if type(str) == "string" then
-                setclipboard(str)
-                pushSuccess("Set Callback Script to Clipboard")
+                outputData(str, 1, "", "Set Callback Script")
             else
                 pushError("Failed to get Callback Script")
             end
@@ -1834,22 +1864,17 @@ local function createCBDecompileButton(window, call, spyFunc)
     local con = nil
     if spyFunc.Type == "Callback" and not call.FromSynapse then
         local con = button.OnUpdated:Connect(function()
-            if not pcall(function()
+            local suc, res = pcall(function()
                 local str = decompile(call.CallbackScript)
                 local scriptName = call.CallbackScript and getInstancePath(call.CallbackScript)
                 if type(str) == "string" then
-                    if Settings.DecompileScriptsToExternal then
-                        createuitab(scriptName or "Script Not Found", str)
-                        pushSuccess("Decompiled Callback Script to External UI")
-                    else
-                        setclipboard(str)
-                        pushSuccess("Decompiled Callback Script to Clipboard")
-                    end
+                    outputData(str, Settings.DecompileScriptsToExternal, scriptName, "Set Callback Script")
                 else
                     pushError("Failed to Decompile Callback Script2")
                 end
-            end) then
-                pushError("Failed to Decompile Callback Script")
+            end)
+            if not suc then
+                pushError("Failed to Decompile Callback Script", res)
             end
         end)
         tableInsert(_G.remoteSpyGuiConnections, con)
@@ -2220,8 +2245,7 @@ local function makeCopyPathButton(sameLine, remote)
     local con = copyPathButton.OnUpdated:Connect(function()
         local str = getInstancePath(remote)
         if type(str) == "string" then
-            setclipboard(str)
-            pushSuccess("Copied Path to Clipboard")
+            outputData(str, 1, "", "Copied Path")
         else
             pushError("Failed to Copy Path")
         end
@@ -2430,6 +2454,21 @@ local function sendLog(remote, data)
     end
 end
 
+local function processReturnValue(refTable, ...)
+    deferFunc(function(...)
+        local args = shallowClone({...}, -1)
+        if args then
+            refTable.Args = args
+            refTable.NilCount = (select("#", ...) - #args)
+        else
+            refTable.Args = false
+            pushError("Return Value Shallow Clone Returned False, which shouldn't be possible")
+        end
+    end, ...)
+
+    return ...
+end
+
 local function addCall(remote, returnValue, spyFunc, caller, ...)
     if not callLogs[remote] then
         callLogs[remote] = {
@@ -2439,7 +2478,7 @@ local function addCall(remote, returnValue, spyFunc, caller, ...)
         }
     end
     if not callLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-        local args, tableDepth, hasTable = shallowClone({...}, -1) -- 1 deeper total
+        local args, tableDepth, hasTable, hasInstance = shallowClone({...}, -1) -- 1 deeper total
         local argCount = select("#", ...)
 
         if not args or argCount > 7995 or (tableDepth > 0 and ((argCount + tableDepth) > 298)) then
@@ -2447,6 +2486,7 @@ local function addCall(remote, returnValue, spyFunc, caller, ...)
         end
 
         local data = {
+            HasInstance = hasInstance,
             TypeIndex = idxs[spyFunc.Name],
             Script = getcallingscript(),
             Args = args, -- 2 deeper total
@@ -2485,7 +2525,7 @@ local function addCallback(remote, method, func)
             if #debug.getcallstack() == 2 then -- check that the function is actually being called by a cclosure
                 if not Settings.Paused then
                     local spyFunc = spyFunctions[idxs[method]]
-                    local args = shallowClone({...}, -1)
+                    local args, _, _, hasInstance = shallowClone({...}, -1)
                     local argCount = select("#", ...)
 
                     local callingScript = originalCallerCache[remote] or {nil, checkcaller()}
@@ -2493,6 +2533,7 @@ local function addCallback(remote, method, func)
                     originalCallerCache[remote] = nil
 
                     local data = {
+                        HasInstance = hasInstance,
                         TypeIndex = idxs[method],
                         CallbackScript = getcallingscript(),
                         Script = callingScript[1],
@@ -2503,15 +2544,15 @@ local function addCallback(remote, method, func)
                     }
 
                     if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then
-                        local exactData = pack(oldfunc(...))
-                        local returnData = shallowClone(exactData, -1)
-                        data.ReturnValue = {
-                            Args = returnData, 
-                            NilCount = exactData.n-#exactData
-                        }
-                        deferFunc(sendLog, remote, data)
+                        local returnValue = {}
+                        deferFunc(function()
+                            if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                                data.ReturnValue = returnValue
+                                sendLog(remote, data)
+                            end
+                        end)
 
-                        return unpack(returnData, 1, exactData.n)
+                        return processReturnValue(returnValue, oldfunc(...))
                     end
                 
 
@@ -2569,9 +2610,10 @@ local function addConnection(remote, signalType, signal)
                         originalCallerCache[remote] = nil
                         
                         if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
-                            local args = shallowClone({...}, -1)
+                            local args, _, _, hasInstance = shallowClone({...}, -1)
                             local argCount = select("#", ...)
                             local data = {
+                                HasInstance = hasInstance,
                                 TypeIndex = idxs[signalType],
                                 Script = callingScript[1],
                                 Scripts = scriptCache,
@@ -2710,15 +2752,10 @@ do -- namecall and function hooks
             -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
 
             if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-                local exactData = pack(oldNamecall(remote, ...)) -- needs to be reworked
-                local returnData = shallowClone(exactData, -1)
-                local returnValue = {
-                    Args = returnData, 
-                    NilCount = exactData.n-#exactData
-                }
+                local returnValue = {}
                 deferFunc(addCall, remote, returnValue, spyFunc, checkcaller(), ...)
-
-                return unpack(returnData, 1, exactData.n)
+                
+                return processReturnValue(returnValue, oldNamecall(remote, ...))
             end
 
             deferFunc(addCall, remote, nil, spyFunc, checkcaller(), ...)
@@ -2742,16 +2779,10 @@ do -- namecall and function hooks
                     end
 
                     if v.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
-                        local exactData = pack(oldFunc(remote, ...))
-                        local returnData = shallowClone(exactData, -1)
-
-                        local returnValue = {
-                            Args = returnData, 
-                            NilCount = exactData.n-#exactData
-                        }
+                        local returnValue = {}
                         deferFunc(addCall, remote, returnValue, v, checkcaller(), ...)
 
-                        return unpack(returnData, 1, exactData.n)
+                        return processReturnValue(returnValue, oldFunc(remote, ...))
                     end
                     deferFunc(addCall, remote, nil, v, checkcaller(), ...)
                     --addCall(remote, nil, spyFunc, ...)
@@ -2762,9 +2793,9 @@ do -- namecall and function hooks
                 return oldFunc(remote, ...)
             end
 
-            oldFunc = hookfunction--[[filteredOth]](Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object)) 
+            oldFunc = filteredOth(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object)) 
             -- oth.hook unsupported right now because of oth.hook complications
-            v.Function = newfunction
+            v.Function = oldFunc
         end
     end
 end

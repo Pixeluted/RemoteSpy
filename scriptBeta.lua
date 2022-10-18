@@ -3,6 +3,8 @@
 -- TO DO:
     -- Make main window remote list use popups (depends on OnRightClick)
     -- Make arg list use right click (depends on defcon)
+    -- Custom getcallingscript (use debug.getcallstack to trace back by checking fenvs, notice that this is detectable so add compatibility checks (rawget fenv script))
+    -- the getcallingscript function should return all the callers (removing duplicates in the stack), being especially helpful for games with modulescripts
 
 local mt = getrawmetatable(game)
 if islclosure(mt.__namecall) or islclosure(mt.__index) or islclosure(mt.__newindex) then
@@ -485,7 +487,7 @@ local function tableToString(data, format, debugMode, root, indents) -- FORKED F
     if dataType == "userdata" or dataType == "vector" then
         if typeof(data) == "Instance" then
             local str, bypasses = getInstancePath(data)
-            if (debugMode == 3 or (debugMode == 2 and sub(str, -1, -2) == "]]")) and not bypasses then
+            if (debugMode == 3 or (debugMode == 2 and sub(str, -2, -1) == "]]")) and not bypasses then
                 return ("GetInstanceFromDebugId(\"" .. data:GetDebugId() .."\")") .. (" -- Original Path: " .. str)
             else
                 return str    
@@ -767,7 +769,7 @@ local function genSendPseudo(rem, call, spyFunc, debugOverride)
     end
 
     local pathStr = getInstancePath(rem)
-    local remPath = ((debugMode == 3 or ((debugMode == 2) and (sub(pathStr, -1, -2) == "]]"))) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
+    local remPath = ((debugMode == 3 or ((debugMode == 2) and (sub(pathStr, -2, -1) == "]]"))) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
 
     if #call.Args == 0 and call.NilCount == 0 then
         if spyFunc.Type == "Call" then
@@ -815,10 +817,10 @@ local function genSendPseudo(rem, call, spyFunc, debugOverride)
             if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
                 if typeof(arg) == "Instance" then
                     local str, bypasses = getInstancePath(arg)
-                    if (debugMode == 3 or (debugMode == 2 and sub(str, -1, -2) == "]]")) and not bypasses then
+                    if (debugMode == 3 or (debugMode == 2 and sub(str, -2, -1) == "]]")) and not bypasses then
                         varConstructor = ("GetInstanceFromDebugId(\"" .. arg:GetDebugId() .."\")") .. (" -- Original Path: " .. str)
                     else
-                        varConstructor = str    
+                        varConstructor = str
                     end
                 else
                     varConstructor = userdataValue(arg)
@@ -1090,7 +1092,7 @@ local function genRecvPseudo(rem, call, spyFunc, watermark)
     end
 
     local pathStr = getInstancePath(rem)
-    local remPath = ((debugMode == 3 or ((debugMode == 2) and (sub(pathStr, -1, -2) == "]]"))) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
+    local remPath = ((debugMode == 3 or ((debugMode == 2) and (sub(pathStr, -2, -1) == "]]"))) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
 
     if spyFunc.Type == "Connection" then
         local pseudocode = ""

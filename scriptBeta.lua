@@ -242,7 +242,7 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
     stack = stack or 0 -- you can offset stack by setting the starting parameter to a number
     local newTable = {}
     local hasTable = false
-    local hasInstance = false
+    local hasNilParentedInstance = false
 
     if #myTable > 0 then stack += 1 end -- replacing the old method because stack doesnt increase unless args are added
 
@@ -254,8 +254,8 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
         if primType == "table" then
             hasTable = true
 
-            local newTab, maxStack, _, subHasInstance = shallowClone(v, stack)
-            hasInstance = hasInstance or subHasInstance
+            local newTab, maxStack, _, subHasNilParentedInstance = shallowClone(v, stack)
+            hasNilParentedInstance = hasNilParentedInstance or subHasNilParentedInstance
             stack = maxStack
             
             if newTab then
@@ -266,8 +266,8 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
         elseif primType == "userdata" then
             local mainType = typeof(v)
             if mainType == "Instance" then
-                if not hasInstance and v:IsAncestorOf(game) then
-                    hasInstance = true
+                if not hasNilParentedInstance and not v:IsAncestorOf(game) then
+                    hasNilParentedInstance = true
                 end
                 newTable[i] = cloneref(v)
             elseif mainType == "userdata" then -- newproxy()
@@ -288,7 +288,7 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
         end
     end
     
-    return newTable, stack, hasTable, hasInstance
+    return newTable, stack, hasTable, hasNilParentedInstance
 end
 
 local function pushTheme(window: RenderChildBase)
@@ -387,28 +387,28 @@ local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
     end
     
     if id == gameId then
-        return "game"
+        return "game", true
     elseif id == workspaceId then
-        return "workspace"
+        return "workspace", true
     else
         local plr = Players:GetPlayerFromCharacter(instance)
         if plr then
             if plr:GetDebugId() == clientid then
-                return 'game:GetService("Players").LocalPlayer.Character'
+                return 'game:GetService("Players").LocalPlayer.Character', true
             else
                 if tonumber(sub(plr.Name, 1, 1)) then
-                    return 'game:GetService("Players")["'..plr.Name..'"]".Character'
+                    return 'game:GetService("Players")["'..plr.Name..'"]".Character', true
                 else
-                    return 'game:GetService("Players").'..plr.Name..'.Character'
+                    return 'game:GetService("Players").'..plr.Name..'.Character', true
                 end
             end
         end
         local _success, result = pcall(game.GetService, game, instance.ClassName)
         
         if _success and result then
-            head = ':GetService("' .. instance.ClassName .. '")'
+            return 'game:GetService("' .. instance.ClassName .. '")', true
         elseif id == clientid then -- cloneref moment
-            return 'game:GetService("Players").LocalPlayer' 
+            return 'game:GetService("Players").LocalPlayer', true
         else
             local nonAlphaNum = gsub(name, '[%w_]', '')
             local noPunct = gsub(nonAlphaNum, '[%s%p]', '')
@@ -421,7 +421,7 @@ local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
         end
     end
     
-    return getInstancePath(instance.Parent) .. head
+    return (getInstancePath(instance.Parent) .. head)
 end
 
 local function toString(value)
@@ -477,13 +477,22 @@ local function userdataValue(data) -- FORKED FROM HYDROXIDE
     return tostring(data)
 end
 
-local function tableToString(data, format, root, indents) -- FORKED FROM HYDROXIDE
+local function tableToString(data, format, debugMode, root, indents) -- FORKED FROM HYDROXIDE
     local dataType = type(data)
 
     format = format == nil and true or format
 
     if dataType == "userdata" or dataType == "vector" then
-        return (typeof(data) == "Instance" and getInstancePath(data)) or userdataValue(data)
+        if typeof(data) == "Instance" then
+            local str, bypasses = getInstancePath(data)
+            if (debugMode == 3 or (debugMode == 2 and sub(str, -1, -2) == "]]")) and not bypasses then
+                return ("GetInstanceFromDebugId(\"" .. data:GetDebugId() .."\")") .. (" -- Original Path: " .. str)
+            else
+                return str    
+            end
+        else
+            return userdataValue(data)
+        end
     elseif dataType == "string" then
         local success, result = pcall(purifyString, data, true)
         return (success and result) or tostring(data)
@@ -502,15 +511,15 @@ local function tableToString(data, format, root, indents) -- FORKED FROM HYDROXI
                     if type(i) == "string" then continue end
 
                     if i ~= (elements + 1) then
-                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, true, root, indents + 1))
+                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, true, debugMode, root, indents + 1))
                     else
-                        head ..= strformat("%s%s,\n", indent, tableToString(v, true, root, indents + 1))
+                        head ..= strformat("%s%s,\n", indent, tableToString(v, true, debugMode, root, indents + 1))
                     end
                     elements += 1
                 end
             else
                 for i,v in data do
-                    head ..= strformat("%s[%s] = %s,\n", indent, tableToString(i, true, root, indents + 1), tableToString(v, true, root, indents + 1))
+                    head ..= strformat("%s[%s] = %s,\n", indent, tableToString(i, true, debugMode, root, indents + 1), tableToString(v, true, debugMode, root, indents + 1))
                 end
             end
         else
@@ -519,15 +528,15 @@ local function tableToString(data, format, root, indents) -- FORKED FROM HYDROXI
                     if type(i) == "string" then continue end
 
                     if i ~= (elements + 1) then
-                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, false, root, indents + 1))
+                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, false, debugMode, root, indents + 1))
                     else
-                        head ..= strformat("%s, ", tableToString(v, false, root, indents + 1))
+                        head ..= strformat("%s, ", tableToString(v, false, debugMode, root, indents + 1))
                     end
                     elements += 1
                 end
             else
                 for i,v in data do
-                    head ..= strformat("[%s] = %s, ", tableToString(i, false, root, indents + 1), tableToString(v, false, root, indents + 1))
+                    head ..= strformat("[%s] = %s, ", tableToString(i, false, debugMode, root, indents + 1), tableToString(v, false, debugMode, root, indents + 1))
                 end
             end
         end
@@ -753,10 +762,12 @@ local function genSendPseudo(rem, call, spyFunc, debugOverride)
         watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
     elseif debugMode == 2 and call.HasInstance then
         watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getnilinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
+    else
+        watermark ..= "\n"
     end
 
     local pathStr = getInstancePath(rem)
-    local remPath = (debugMode == 3) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr) or pathStr
+    local remPath = ((debugMode == 3 or ((debugMode == 2) and (sub(pathStr, -1, -2) == "]]"))) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
 
     if #call.Args == 0 and call.NilCount == 0 then
         if spyFunc.Type == "Call" then
@@ -803,10 +814,8 @@ local function genSendPseudo(rem, call, spyFunc, debugOverride)
 
             if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
                 if typeof(arg) == "Instance" then
-                    local str = getInstancePath(arg)
-                    if debugMode == 3 then
-                        varConstructor = ("GetInstanceFromDebugId(\"" .. arg:GetDebugId() .."\")") .. (" -- Original Path: " .. str)
-                    elseif debugMode == 2 and sub(str, -1, -2) == "]]" then
+                    local str, bypasses = getInstancePath(arg)
+                    if (debugMode == 3 or (debugMode == 2 and sub(str, -1, -2) == "]]")) and not bypasses then
                         varConstructor = ("GetInstanceFromDebugId(\"" .. arg:GetDebugId() .."\")") .. (" -- Original Path: " .. str)
                     else
                         varConstructor = str    
@@ -815,7 +824,7 @@ local function genSendPseudo(rem, call, spyFunc, debugOverride)
                     varConstructor = userdataValue(arg)
                 end
             elseif primTyp == "table" then
-                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables)
+                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, debugMode)
             elseif primTyp == "string" then
                 varConstructor = purifyString(arg, true)
             elseif primTyp == "function" then
@@ -965,7 +974,7 @@ local function genReturnValuePseudo(returnTable, spyFunc)
             if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
                 varConstructor = userdataValue(arg)
             elseif primTyp == "table" then
-                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables)
+                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, 1)
             elseif primTyp == "string" then
                 varConstructor = purifyString(arg, true)
             elseif primTyp == "function" then
@@ -1070,7 +1079,18 @@ end
 local function genRecvPseudo(rem, call, spyFunc, watermark)
     local watermark = watermark and "--Pseudocode Generated by GameGuy's Remote Spy\n\n" or ""
 
-    local remPath = getInstancePath(rem)
+    local debugMode = debugOverride and 3 or Settings.DebugIdMode
+
+    if debugMode == 3 then
+        watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
+    elseif debugMode == 2 and call.HasInstance then
+        watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getnilinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
+    else
+        watermark ..= "\n"
+    end
+
+    local pathStr = getInstancePath(rem)
+    local remPath = ((debugMode == 3 or ((debugMode == 2) and (sub(pathStr, -1, -2) == "]]"))) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
 
     if spyFunc.Type == "Connection" then
         local pseudocode = ""
@@ -2489,7 +2509,7 @@ local function addCall(remote, returnValue, spyFunc, caller, ...)
         end
 
         local data = {
-            HasInstance = hasInstance,
+            HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
             TypeIndex = idxs[spyFunc.Name],
             Script = getcallingscript(),
             Args = args, -- 2 deeper total
@@ -2536,7 +2556,7 @@ local function addCallback(remote, method, func)
                     originalCallerCache[remote] = nil
 
                     local data = {
-                        HasInstance = hasInstance,
+                        HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
                         TypeIndex = idxs[method],
                         CallbackScript = getcallingscript(),
                         Script = callingScript[1],
@@ -2616,7 +2636,7 @@ local function addConnection(remote, signalType, signal)
                             local args, _, _, hasInstance = shallowClone({...}, -1)
                             local argCount = select("#", ...)
                             local data = {
-                                HasInstance = hasInstance,
+                                HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
                                 TypeIndex = idxs[signalType],
                                 Script = callingScript[1],
                                 Scripts = scriptCache,

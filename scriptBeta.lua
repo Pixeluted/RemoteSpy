@@ -139,6 +139,14 @@ local CallerIconFont = DrawFont.Register(fontData, {
     }
 })
 
+local fontSize = 18
+local DefaultTextFont = DrawFont.RegisterDefault("NotoSans_Regular", {
+    Scale = false,
+    Bold = false,
+    UseStb = true,
+    PixelSize = fontSize
+})
+
 local colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack, unpack = Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack, table.unpack
 
 local inf, neginf = (1/0), (-1/0)
@@ -187,6 +195,63 @@ local colorOptions = {
     HeaderHovered = {colorRGB(55, 55, 55), 1},
     HeaderActive = {colorRGB(75, 75, 75), 1},
 }
+
+local function resizeText(original, newWidth, proceedingChars, font)  -- my fix using this and purifyString is pretty garbage as it brute forces the string size, but before that it makes a really rough guess on the maximum length of the string, allowing for general optimization for speed, but it isn't perfect.  The current system is **enough**, taking approx 370 microseconds, but could be improved greatly.  Fundamentally, this fix is also flawed because of how hard coded it is, and how unnecessarily it passes args through getArgString.
+    if type(original) ~= "string" then warn("non string text passed to resizeText"); return original end
+
+    local charSize = font:GetTextBounds(fontSize, original).X
+    if charSize < newWidth then return original end
+
+    local newCharCount = math.floor(newWidth/(charSize/#original))
+    local bestText = string.sub(original, 1, newCharCount)
+    
+    if proceedingChars == "...   " and fontSize == 18 then
+        newWidth -= 18
+    else
+        newWidth -= font:GetTextBounds(fontSize, proceedingChars).X
+    end
+
+    local steps = 0
+
+    local newSize = font:GetTextBounds(fontSize, bestText).X
+    if newSize <= newWidth then
+        local res = math.ceil((newWidth - newSize)/fontSize)
+        local oldText = ""
+        while true do
+            steps += 1
+            local newText = string.sub(original, 1, newCharCount+res)
+            local newerSize = font:GetTextBounds(fontSize, newText).X
+
+            if newerSize > newWidth then
+                if res == 1 then
+                    return oldText .. proceedingChars
+                else
+                    res = math.ceil(res/2)
+                end
+            else
+                newCharCount = #newText
+                oldText = newText
+            end
+        end
+    else
+        local res = math.ceil((newSize - newWidth)/fontSize)
+        while true do
+            steps += 1
+            local newText = string.sub(original, 1, newCharCount-res)
+            local newerSize = font:GetTextBounds(fontSize, newText).X
+
+            if newerSize < newWidth then
+                if res == 1 then
+                    return newText .. proceedingChars
+                else
+                    res = math.floor(res/2)
+                end
+            else
+                newCharCount = #newText
+            end
+        end
+    end
+end
 
 local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
     local oldFunction
@@ -355,8 +420,15 @@ local asciiFilteredCharacters = {
 
 local synEncode = syn.crypt.url.encode
 
-local function purifyString(str: string, quotes: boolean)
+local function purifyString(str: string, quotes: boolean, maxLength: number) -- my fix using this and resizeText is pretty garbage as it brute forces the string size, but before that it makes a really rough guess on the maximum length of the string, allowing for general optimization for speed, but it isn't perfect.  The current system is **enough**, taking approx 370 microseconds, but could be improved greatly.  Fundamentally, this fix is also flawed because of how hard coded it is, and how unnecessarily it passes args through getArgString.
+    if type(maxLength) == "number" then
+        str = sub(str, 1, maxLength)
+    end
     str = gsub(synEncode(str), "%%", "\\x")
+    if type(maxLength) == "number" then
+        str = sub(str, 1, maxLength)
+    end
+
     for i,v in asciiFilteredCharacters do
         str = gsub(str, v, i)
     end
@@ -575,8 +647,8 @@ local function tableToString(data, format, debugMode, root, indents) -- FORKED F
 end
 
 local types = {
-    ["string"] = { colorHSV(29/360, 0.8, 1), function(obj)
-        return purifyString(obj, true)
+    ["string"] = { colorHSV(29/360, 0.8, 1), function(obj, maxLength)
+        return purifyString(obj, true, maxLength)
     end },
     ["number"] = { colorHSV(120/360, 0.8, 1), function(obj)
         return tostring(obj)
@@ -608,7 +680,7 @@ local types = {
     end }
 }
 
-local function getArgString(arg, remType)
+local function getArgString(arg, remType, maxLength)
     local t = type(arg)
     if (t == "thread") or (t == "function" and (remType == "RemoteFunction" or remType == "RemoteEvent")) then
         return "nil", types["nil"][1]
@@ -616,7 +688,7 @@ local function getArgString(arg, remType)
 
     if types[t] and t ~= "userdata" then
         local st = types[t]
-        return st[2](arg), st[1]
+        return st[2](arg, maxLength), st[1]
     elseif t == "userdata" or t == "vector" then
         local st = userdataValue(arg)
         return st, (typeof(arg) == "Instance" and colorHSV(57/360, 0.8, 1)) or colorHSV(314/360, 0.8, 1)
@@ -1993,18 +2065,19 @@ local function makeRemoteViewerLog(call, remote)
         temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
 
         local lineContents = temp2:Indent(-1):Button()
+        lineContents.Size = Vector2.new(width-24-38-23, 24) -- 24 = left padding, 38 = right padding, and no scrollbar
         if totalArgCount == 0 then
             argFrame:SetColor(RenderColorOption.Text, colorRGB(156, 0, 0), 1)
             lineContents.Label = spaces2 .. "nil"
         elseif #call.Args == 1 then
-            local text, color = getArgString(call.Args[1], call.Type)
-            lineContents.Label = spaces2 .. text
+            local text, color = getArgString(call.Args[1], call.Type, lineContents.Size.X)
+            local str = resizeText(spaces2 .. text, lineContents.Size.X, "...   ", DefaultTextFont)
+            lineContents.Label = str
             argFrame:SetColor(RenderColorOption.Text, color, 1)
         else
             lineContents.Label = spaces2 .. "HIDDEN NIL"
             argFrame:SetColor(RenderColorOption.Text, colorHSV(258/360, 0.8, 1), 1)
         end
-        lineContents.Size = Vector2.new(width-24-38-23, 24) -- 24 = left padding, 38 = right padding, and no scrollbar
         mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y+4)
 
         local temp = argFrame:SameLine()
@@ -2046,19 +2119,19 @@ local function makeRemoteViewerLog(call, remote)
             temp2:SetStyle(RenderStyleOption.ButtonTextAlign, Vector2.new(0, 0.5))
             
             local lineContents = firstLine and temp2:Indent(-1):Button() or temp2:Indent(8):Button()
-            if i ~= Settings.ArgLimit then
-                local text, color
-                text, color = getArgString(x, call.Type)
-                lineContents.Label = spaces2 .. text
-                argFrame:SetColor(RenderColorOption.Text, color, 1)
-            else
-                lineContents.Label = spaces2 .. "ARG LIMIT REACHED"
-                argFrame:SetColor(RenderColorOption.Text, Color3.new(1, 0, 0), 1)
-            end
             if totalArgCount < 10 then
                 lineContents.Size = firstLine and normalFirstSize or normalSize 
             else
                 lineContents.Size = firstLine and scrollFirstSize or scrollSize
+            end
+            if i ~= Settings.ArgLimit then
+                local text, color
+                text, color = getArgString(x, call.Type, lineContents.Size.X)
+                lineContents.Label = resizeText(spaces2 .. text, lineContents.Size.X, "...   ", DefaultTextFont)
+                argFrame:SetColor(RenderColorOption.Text, color, 1)
+            else
+                lineContents.Label = spaces2 .. "ARG LIMIT REACHED"
+                argFrame:SetColor(RenderColorOption.Text, Color3.new(1, 0, 0), 1)
             end
             mainButton.Size = Vector2.new(lineContents.Size.X, lineContents.Size.Y+4) -- +4 to add spacer
 
@@ -2141,7 +2214,7 @@ local function loadRemote(remote, data)
     remotePage.Visible = true
     currentSelectedRemote = remote
     currentSelectedType = funcInfo.Type
-    remotePageObjects.Name.Label = remote and purifyString(remote.Name) or "NIL REMOTE"
+    remotePageObjects.Name.Label = remote and resizeText(purifyString(remote.Name, false, remotePageObjects.Name.Size.X), remotePageObjects.Name.Size.X, "...   ", DefaultTextFont) or "NIL REMOTE"
     remotePageObjects.Icon.Label = funcInfo.Icon .. "   "
     remotePageObjects.IgnoreButton.Label = (logs[remote].Ignored and "Unignore") or "Ignore"
     remotePageObjects.IgnoreButtonFrame:SetColor(RenderColorOption.Text, (logs[remote].Ignored and green) or red, 1)
@@ -2396,8 +2469,8 @@ local function renderNewLog(remote, data)
     sameButtonLine = sameButtonLine:SameLine()
 
     local remoteButton = sameButtonLine:Indent(6):Selectable()
-    remoteButton.Label = spaces .. (remote and purifyString(remote.Name, false) or "NIL REMOTE")
     remoteButton.Size = Vector2.new(width-327-4-14, 24)
+    remoteButton.Label = spaces .. (remote and resizeText(purifyString(remote.Name, false, remoteButton.Size.X), remoteButton.Size.X, "...   ", DefaultTextFont) or "NIL REMOTE")
     local con = remoteButton.OnUpdated:Connect(function()
         loadRemote(remote, data)
     end)

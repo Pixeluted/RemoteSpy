@@ -25,7 +25,7 @@ local function cleanUpSpy()
     end
 
     for _,v in _G.remoteSpySignalHooks do
-        unhooksignal(v)
+        restoresignal(v)
     end
 
     _G.remoteSpyGuiConnections = nil
@@ -147,7 +147,7 @@ local DefaultTextFont = DrawFont.RegisterDefault("NotoSans_Regular", {
     PixelSize = fontSize
 })
 
-local colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack, unpack = Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack, table.unpack
+local ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack, unpack = math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack, table.unpack
 
 local inf, neginf = (1/0), (-1/0)
 
@@ -202,8 +202,8 @@ local function resizeText(original, newWidth, proceedingChars, font)  -- my fix 
     local charSize = font:GetTextBounds(fontSize, original).X
     if charSize < newWidth then return original end
 
-    local newCharCount = math.floor(newWidth/(charSize/#original))
-    local bestText = string.sub(original, 1, newCharCount)
+    local newCharCount = floor(newWidth/(charSize/#original))
+    local bestText = sub(original, 1, newCharCount)
     
     if proceedingChars == "...   " and fontSize == 18 then
         newWidth -= 18
@@ -215,18 +215,18 @@ local function resizeText(original, newWidth, proceedingChars, font)  -- my fix 
 
     local newSize = font:GetTextBounds(fontSize, bestText).X
     if newSize <= newWidth then
-        local res = math.ceil((newWidth - newSize)/fontSize)
+        local res = ceil((newWidth - newSize)/fontSize)
         local oldText = ""
         while true do
             steps += 1
-            local newText = string.sub(original, 1, newCharCount+res)
+            local newText = sub(original, 1, newCharCount+res)
             local newerSize = font:GetTextBounds(fontSize, newText).X
 
             if newerSize > newWidth then
                 if res == 1 then
                     return oldText .. proceedingChars
                 else
-                    res = math.ceil(res/2)
+                    res = ceil(res/2)
                 end
             else
                 newCharCount = #newText
@@ -234,17 +234,17 @@ local function resizeText(original, newWidth, proceedingChars, font)  -- my fix 
             end
         end
     else
-        local res = math.ceil((newSize - newWidth)/fontSize)
+        local res = ceil((newSize - newWidth)/fontSize)
         while true do
             steps += 1
-            local newText = string.sub(original, 1, newCharCount-res)
+            local newText = sub(original, 1, newCharCount-res)
             local newerSize = font:GetTextBounds(fontSize, newText).X
 
             if newerSize < newWidth then
                 if res == 1 then
                     return newText .. proceedingChars
                 else
-                    res = math.floor(res/2)
+                    res = floor(res/2)
                 end
             else
                 newCharCount = #newText
@@ -2302,7 +2302,7 @@ addSpacer(frontPage, 4)
 
 local sameLine = frontPage:SameLine()
 
-local splitAmt = (math.floor(#spyFunctions/2)+1)
+local splitAmt = (floor(#spyFunctions/2)+1)
 for i,v in spyFunctions do
     
     if i == splitAmt then
@@ -2567,7 +2567,7 @@ local function processReturnValue(refTable, ...)
     return ...
 end
 
-local function addCall(remote, returnValue, spyFunc, caller, ...)
+local function addCall(remote, returnValue, spyFunc, caller, cs, ...)
     if not callLogs[remote] then
         callLogs[remote] = {
             Blocked = false,
@@ -2586,7 +2586,7 @@ local function addCall(remote, returnValue, spyFunc, caller, ...)
         local data = {
             HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
             TypeIndex = idxs[spyFunc.Name],
-            Script = getcallingscript(),
+            Script = cs,
             Args = args, -- 2 deeper total
             ReturnValue = returnValue,
             NilCount = (argCount - #args),
@@ -2622,39 +2622,39 @@ local function addCallback(remote, method, func)
         oldfunc = hookfunction(func, function(...) -- lclosure, so oth.hook not applicable
             if #debug.getcallstack() == 2 then -- check that the function is actually being called by a cclosure
                 if not Settings.Paused then
-                    local spyFunc = spyFunctions[idxs[method]]
-                    local args, _, _, hasInstance = shallowClone({...}, -1)
-                    local argCount = select("#", ...)
-
-                    local callingScript = originalCallerCache[remote] or {nil, checkcaller()}
-
-                    originalCallerCache[remote] = nil
-
-                    local data = {
-                        HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
-                        TypeIndex = idxs[method],
-                        CallbackScript = getcallingscript(),
-                        Script = callingScript[1],
-                        Args = args, -- 2 deeper total
-                        CallbackLog = otherLogs[remote],
-                        NilCount = (argCount - #args),
-                        FromSynapse = callingScript[2]
-                    }
-
-                    if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then
-                        local returnValue = {}
-                        deferFunc(function()
-                            if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                                data.ReturnValue = returnValue
-                                sendLog(remote, data)
-                            end
-                        end)
-
-                        return processReturnValue(returnValue, oldfunc(...))
-                    end
-                
-
                     deferFunc(function(...)
+                        local spyFunc = spyFunctions[idxs[method]]
+                        local args, _, _, hasInstance = shallowClone({...}, -1)
+                        local argCount = select("#", ...)
+
+                        local callingScript = originalCallerCache[remote] or {nil, checkcaller()}
+
+                        originalCallerCache[remote] = nil
+
+                        local data = {
+                            HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
+                            TypeIndex = idxs[method],
+                            CallbackScript = getcallingscript(),
+                            Script = callingScript[1],
+                            Args = args, -- 2 deeper total
+                            CallbackLog = otherLogs[remote],
+                            NilCount = (argCount - #args),
+                            FromSynapse = callingScript[2]
+                        }
+
+                        if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then
+                            local returnValue = {}
+                            deferFunc(function()
+                                if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                                    data.ReturnValue = returnValue
+                                    sendLog(remote, data)
+                                end
+                            end)
+
+                            return processReturnValue(returnValue, oldfunc(...))
+                        end
+                    
+
                         if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
                             sendLog(remote, data)
                         end
@@ -2851,12 +2851,12 @@ do -- namecall and function hooks
 
             if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
                 local returnValue = {}
-                deferFunc(addCall, remote, returnValue, spyFunc, checkcaller(), ...)
+                deferFunc(addCall, remote, returnValue, spyFunc, checkcaller(), getcallingscript(), ...)
                 
                 return processReturnValue(returnValue, oldNamecall(remote, ...))
             end
 
-            deferFunc(addCall, remote, nil, spyFunc, checkcaller(), ...)
+            deferFunc(addCall, remote, nil, spyFunc, checkcaller(), getcallingscript(), ...)
             --addCall(remote, nil, spyFunc, ...)
         end
     
@@ -2878,11 +2878,11 @@ do -- namecall and function hooks
 
                     if v.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
                         local returnValue = {}
-                        deferFunc(addCall, remote, returnValue, v, checkcaller(), ...)
+                        deferFunc(addCall, remote, returnValue, v, checkcaller(), getcallingscript(), ...)
 
                         return processReturnValue(returnValue, oldFunc(remote, ...))
                     end
-                    deferFunc(addCall, remote, nil, v, checkcaller(), ...)
+                    deferFunc(addCall, remote, nil, v, checkcaller(), getcallingscript(), ...)
                     --addCall(remote, nil, spyFunc, ...)
                 end
             

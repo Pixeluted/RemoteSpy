@@ -25,7 +25,9 @@ local function cleanUpSpy()
     end
 
     for _,v in _G.remoteSpySignalHooks do
-        restoresignal(v)
+        if issignalhooked(v) then
+            restoresignal(v)
+        end
     end
 
     _G.remoteSpyGuiConnections = nil
@@ -33,14 +35,14 @@ local function cleanUpSpy()
     _G.remoteSpySettingsWindow = nil
     
     local unHook = syn.oth.unhook
-    unHook(Instance.new("RemoteEvent").FireServer)
-    unHook(Instance.new("RemoteFunction").InvokeServer)
-    unHook(Instance.new("BindableEvent").Fire)
-    unHook(Instance.new("BindableFunction").Invoke)
+    pcall(unHook, Instance.new("RemoteEvent").FireServer)
+    pcall(unHook, Instance.new("RemoteFunction").InvokeServer)
+    pcall(unHook, Instance.new("BindableEvent").Fire)
+    pcall(unHook, Instance.new("BindableFunction").Invoke)
 
-    unHook(mt.__namecall)
-    unHook(mt.__index)
-    unHook(mt.__newindex)
+    pcall(unHook, mt.__namecall)
+    pcall(unHook, mt.__index)
+    pcall(unHook, mt.__newindex)
 end
 
 if _G.remoteSpyMainWindow or _G.remoteSpySettingsWindow then
@@ -832,10 +834,8 @@ local function genSendPseudo(rem, call, spyFunc, debugOverride)
 
     local debugMode = debugOverride and 3 or Settings.DebugIdMode
 
-    if debugMode == 3 then
+    if debugMode == 3 or (debugMode == 2 and call.HasInstance) then
         watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
-    elseif debugMode == 2 and call.HasInstance then
-        watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getnilinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
     else
         watermark ..= "\n"
     end
@@ -1155,10 +1155,8 @@ local function genRecvPseudo(rem, call, spyFunc, watermark)
 
     local debugMode = debugOverride and 3 or Settings.DebugIdMode
 
-    if debugMode == 3 then
+    if debugMode == 3 or (debugMode == 2 and call.HasInstance) then
         watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
-    elseif debugMode == 2 and call.HasInstance then
-        watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getnilinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
     else
         watermark ..= "\n"
     end
@@ -2796,34 +2794,7 @@ local initInfo = {
 }
 
 do -- init OnClientInvoke and signal index
-    for _,v in getnilinstances() do
-        local data = initInfo[v.ClassName]
-        if data then
-            if data[1] == "Connection" then
-                addConnection(v, data[2], v[data[2]])
-            elseif data[1] == "Callback" then
-                local func = getcallbackmember(v, data[2])
-                if func then
-                    addCallback(v, data[2], func)
-                end
-            end
-        end
-        for _,x in v:GetDescendants() do
-            local data = initInfo[x.ClassName]
-            if data then
-                if data[1] == "Connection" then
-                    addConnection(x, data[2], x[data[2]])
-                elseif data[1] == "Callback" then
-                    local func = getcallbackmember(x, data[2])
-                    if func then
-                        addCallback(x, data[2], func)
-                    end
-                end
-            end
-        end
-    end
-
-    for _,v in game:GetDescendants() do
+    for _,v in getinstances() do
         local data = initInfo[v.ClassName]
         if data then
             if data[1] == "Connection" then
@@ -2837,12 +2808,13 @@ do -- init OnClientInvoke and signal index
         end
     end
 end
+
+
 do -- namecall and function hooks
     local oldNamecall
     oldNamecall = newHookMetamethod(game, "__namecall", newcclosure(function(remote, ...)
         if not Settings.Paused and select("#", ...) < 7996 then
             local spyFunc = spyFunctions[idxs[getnamecallmethod()]]
-
             if spyFunc.Type == "Call" and spyFunc.FiresLocally then
                 local caller = checkcaller()
                 originalCallerCache[remote] = originalCallerCache[remote] or {(not caller and scr), caller}
@@ -2855,7 +2827,7 @@ do -- namecall and function hooks
                 
                 return processReturnValue(returnValue, oldNamecall(remote, ...))
             end
-
+            warn(coroutine.running())
             deferFunc(addCall, remote, nil, spyFunc, checkcaller(), getcallingscript(), ...)
             --addCall(remote, nil, spyFunc, ...)
         end
@@ -2892,7 +2864,7 @@ do -- namecall and function hooks
             end
 
             oldFunc = filteredOth(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object)) 
-            -- oth.hook unsupported right now because of oth.hook complications
+            
             v.Function = oldFunc
         end
     end

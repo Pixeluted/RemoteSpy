@@ -2827,7 +2827,7 @@ do -- namecall and function hooks
                 
                 return processReturnValue(returnValue, oldNamecall(remote, ...))
             end
-            warn(coroutine.running())
+                    
             deferFunc(addCall, remote, nil, spyFunc, checkcaller(), getcallingscript(), ...)
             --addCall(remote, nil, spyFunc, ...)
         end

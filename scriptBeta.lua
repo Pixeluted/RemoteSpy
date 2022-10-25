@@ -553,7 +553,7 @@ local function userdataValue(data) -- FORKED FROM HYDROXIDE
     return tostring(data)
 end
 
-local function tableToString(data, format, debugMode, root, indents) -- FORKED FROM HYDROXIDE
+local function tableToString(data, format, call, debugMode, root, indents) -- FORKED FROM HYDROXIDE
     local dataType = type(data)
 
     format = format == nil and true or format
@@ -587,15 +587,15 @@ local function tableToString(data, format, debugMode, root, indents) -- FORKED F
                     if type(i) == "string" then continue end
 
                     if i ~= (elements + 1) then
-                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, true, debugMode, root, indents + 1))
+                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, true, call, debugMode, root, indents + 1))
                     else
-                        head ..= strformat("%s%s,\n", indent, tableToString(v, true, debugMode, root, indents + 1))
+                        head ..= strformat("%s%s,\n", indent, tableToString(v, true, call, debugMode, root, indents + 1))
                     end
                     elements += 1
                 end
             else
                 for i,v in data do
-                    head ..= strformat("%s[%s] = %s,\n", indent, tableToString(i, true, debugMode, root, indents + 1), tableToString(v, true, debugMode, root, indents + 1))
+                    head ..= strformat("%s[%s] = %s,\n", indent, tableToString(i, true, call, debugMode, root, indents + 1), tableToString(v, true, call, debugMode, root, indents + 1))
                 end
             end
         else
@@ -604,15 +604,15 @@ local function tableToString(data, format, debugMode, root, indents) -- FORKED F
                     if type(i) == "string" then continue end
 
                     if i ~= (elements + 1) then
-                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, false, debugMode, root, indents + 1))
+                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, false, call, debugMode, root, indents + 1))
                     else
-                        head ..= strformat("%s, ", tableToString(v, false, debugMode, root, indents + 1))
+                        head ..= strformat("%s, ", tableToString(v, false, call, debugMode, root, indents + 1))
                     end
                     elements += 1
                 end
             else
                 for i,v in data do
-                    head ..= strformat("[%s] = %s, ", tableToString(i, false, debugMode, root, indents + 1), tableToString(v, false, debugMode, root, indents + 1))
+                    head ..= strformat("[%s] = %s, ", tableToString(i, false, call, debugMode, root, indents + 1), tableToString(v, false, call, debugMode, root, indents + 1))
                 end
             end
         end
@@ -622,12 +622,12 @@ local function tableToString(data, format, debugMode, root, indents) -- FORKED F
         else
             return #head > 2 and (sub(head, 1, -3) .. ' }') or "{}"
         end
-    elseif dataType == "function" and (call.Type == "BindableEvent" or call.Type == "BindableFunction") then -- functions are only receivable through bindables, not remotes
-        varConstructor = 'nil -- "' .. tostring(data) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
+    elseif dataType == "function" and call and (call.Type == "BindableEvent" or call.Type == "BindableFunction") then -- functions are only receivable through bindables, not remotes
+        return 'nil -- "' .. tostring(data) .. '"  FUNCTIONS CANT BE MADE INTO PSEUDOCODE' -- just in case
     elseif dataType == "thread" and false then -- dont bother listing threads because they can never be sent
-        varConstructor = 'nil -- "' .. tostring(data) .. '"  THREADS CANT BE MADE INTO PSEUDOCODE' -- just in case
+        return 'nil -- "' .. tostring(data) .. '"  THREADS CANT BE MADE INTO PSEUDOCODE' -- just in case
     elseif dataType == "thread" or dataType == "function" then
-        varConstructor = "nil"
+        return "nil"
     elseif dataType == "number" then
         local dataStr = tostring(data)
         if not match(dataStr, "%d") then
@@ -898,7 +898,7 @@ local function genSendPseudo(rem, call, spyFunc, debugOverride)
                     varConstructor = userdataValue(arg)
                 end
             elseif primTyp == "table" then
-                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, debugMode)
+                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, call, debugMode)
             elseif primTyp == "string" then
                 varConstructor = purifyString(arg, true)
             elseif primTyp == "function" then
@@ -1048,7 +1048,7 @@ local function genReturnValuePseudo(returnTable, spyFunc)
             if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
                 varConstructor = userdataValue(arg)
             elseif primTyp == "table" then
-                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, 1)
+                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, returnTable, 1)
             elseif primTyp == "string" then
                 varConstructor = purifyString(arg, true)
             elseif primTyp == "function" then
@@ -1831,12 +1831,12 @@ local function createGenSendPCButton(window, call, remote, spyFunc)
     local button = window:Selectable()
     button.Label = "Generate Calling Pseudocode"
     local con = button.OnUpdated:Connect(function()
-        local suc, ret = pcall(function()
+        --local suc, ret = pcall(function()
             outputData(genSendPseudo(remote, call, spyFunc), Settings.PseudocodeOutput, "RS Pseudocode", "Generated Pseudocode")
-        end)
+        --[[end)
         if not suc then
             pushError("Failed to Generate Pseudocode", ret)
-        end
+        end]]
     end)
     tableInsert(_G.remoteSpyGuiConnections, con)
     return con
@@ -2827,7 +2827,7 @@ do -- namecall and function hooks
                 
                 return processReturnValue(returnValue, oldNamecall(remote, ...))
             end
-                    
+            
             deferFunc(addCall, remote, nil, spyFunc, checkcaller(), getcallingscript(), ...)
             --addCall(remote, nil, spyFunc, ...)
         end

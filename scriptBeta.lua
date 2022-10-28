@@ -35,14 +35,14 @@ local function cleanUpSpy()
     _G.remoteSpySettingsWindow = nil
     
     local unHook = syn.oth.unhook
-    pcall(unHook, Instance.new("RemoteEvent").FireServer)
-    pcall(unHook, Instance.new("RemoteFunction").InvokeServer)
-    pcall(unHook, Instance.new("BindableEvent").Fire)
-    pcall(unHook, Instance.new("BindableFunction").Invoke)
+    unHook(Instance.new("RemoteEvent").FireServer)
+    unHook(Instance.new("RemoteFunction").InvokeServer)
+    unHook(Instance.new("BindableEvent").Fire)
+    unHook(Instance.new("BindableFunction").Invoke)
 
-    pcall(unHook, mt.__namecall)
-    pcall(unHook, mt.__index)
-    pcall(unHook, mt.__newindex)
+    unHook(mt.__namecall)
+    unHook(mt.__index)
+    unHook(mt.__newindex)
 end
 
 if _G.remoteSpyMainWindow or _G.remoteSpySettingsWindow then

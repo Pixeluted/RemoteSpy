@@ -149,7 +149,7 @@ local DefaultTextFont = DrawFont.RegisterDefault("NotoSans_Regular", {
     PixelSize = fontSize
 })
 
-local ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack, unpack = math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack, table.unpack
+local getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack, unpack = table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack, table.unpack
 
 local inf, neginf = (1/0), (-1/0)
 
@@ -262,6 +262,7 @@ local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
         return oldFunction(...)
     end, hookFunction)
 
+    restorefunction(getrawmetatable(toHook)[mtmethod]) -- restores any old hooks
     oldFunction = othHook(getrawmetatable(toHook)[mtmethod], func) -- hookmetamethod(toHook, mtmethod, func) 
     return oldFunction
 end
@@ -313,7 +314,7 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
     local hasTable = false
     local hasNilParentedInstance = false
 
-    if #myTable > 0 then stack += 1 end -- replacing the old method because stack doesnt increase unless args are added
+    if getn(myTable) > 0 then stack += 1 end -- replacing the old method because stack doesnt increase unless args are added
 
     if stack == 300 then -- this stack overflow check doesn't really matter as a stack overflow check, it's just here to make sure there are no cyclic tables.  While I could just check for cyclics directly, this is faster.
         return false, stack
@@ -350,7 +351,7 @@ local function shallowClone(myTable: table, stack: number) -- cyclic check built
     end
 
     if stack == -1 then -- set any nils in the middle so the table size is correct
-        for i = 1, #myTable do
+        for i = 1, #myTable do -- # is safe here because it's calling my own table, but getn could be used too
             if not newTable[i] then
                 newTable[i] = nil
             end
@@ -504,6 +505,8 @@ local function toString(value)
     return type(value) == "userdata" and userdataValue(value) or tostring(value)
 end
 
+local tableToString;
+
 local function userdataValue(data) -- FORKED FROM HYDROXIDE
     local dataType = typeof(data)
 
@@ -533,14 +536,21 @@ local function userdataValue(data) -- FORKED FROM HYDROXIDE
     elseif dataType == "DateTime" then
         return dataType .. ".now()"
     elseif dataType == "PathWaypoint" then
-        local split = split(tostring(data), '}, ')
-        local vector = gsub(split[1], '{', "Vector3.new(")
-        return dataType .. ".new(" .. vector .. "), " .. split[2] .. ')'
-    elseif dataType == "Ray" or dataType == "Region3" then
-        local split = split(tostring(data), '}, ')
-        local vprimary = gsub(split[1], '{', "Vector3.new(")
-        local vsecondary = gsub(gsub(split[2], '{', "Vector3.new("), '}', ')')
-        return dataType .. ".new(" .. vprimary .. "), " .. vsecondary .. ')'
+        local splitstr = split(tostring(data), '}, ')
+        local vector = gsub(splitstr[1], '{', "Vector3.new(")
+        return dataType .. ".new(" .. vector .. "), " .. splitstr[2] .. ')'
+    elseif dataType == "Ray" then
+        local splitstr = split(tostring(data), '}, ')
+        local vprimary = gsub(splitstr[1], '{', "Vector3.new(")
+        local vsecondary = gsub(gsub(splitstr[2], '{', "Vector3.new("), '}', ')')
+        return "Ray.new(" .. vprimary .. "), " .. vsecondary .. ')'
+    elseif dataType == "Region3" then
+        local size = data.Size
+        local position = data.CFrame.Position
+
+        local startVec = "Vector3.new(" .. tostring(position.X - size.X/2) .. ", " .. tostring(position.Y - size.Y/2) .. ", " .. tostring(position.Z - size.Z/2) .. ")"
+        local endVec = "Vector3.new(" .. tostring(position.X + size.X/2) .. ", " .. tostring(position.Y + size.Y/2) .. ", " .. tostring(position.Z + size.Z/2) .. ")"
+        return "Region3.new(" .. startVec .. ", " .. endVec .. ")"
     elseif dataType == "ColorSequence" or dataType == "NumberSequence" then 
         return dataType .. ".new(" .. tableToString(data.Keypoints) .. ')'
     elseif dataType == "ColorSequenceKeypoint" then
@@ -550,10 +560,11 @@ local function userdataValue(data) -- FORKED FROM HYDROXIDE
         return "NumberSequenceKeypoint.new(" .. data.Time .. ", " .. envelope .. ")"
     end
 
-    return tostring(data)
+    return tostring(data) -- unsupported userdata
 end
 
-local function tableToString(data, format, call, debugMode, root, indents) -- FORKED FROM HYDROXIDE
+-- localized elsewhere
+tableToString = function(data, format, call, debugMode, root, indents) -- FORKED FROM HYDROXIDE
     local dataType = type(data)
 
     format = format == nil and true or format

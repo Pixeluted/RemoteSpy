@@ -94,7 +94,8 @@ local Settings = {
     PseudocodeInlineRemote = true,
     PseudocodeInlineHiddenNils = true,
     PseudocodeFormatTables = true,
-    DebugIdMode = 1
+    InstanceTrackerMode = 1,
+    OptimizedInstanceTracker = false
 }
 
 local function saveConfig()
@@ -151,11 +152,54 @@ local DefaultTextFont = DrawFont.RegisterDefault("NotoSans_Regular", {
     PixelSize = fontSize
 })
 
-local getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, taskWait, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack, unpack = table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.wait, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack, table.unpack
+local getDebugId, getThreadIdentity, setThreadIdentity, getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack = game.GetDebugId, syn.get_thread_identity, syn.set_thread_identity, table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack
 
 local inf, neginf = (1/0), (-1/0)
 
 local othHook = syn.oth.hook
+
+local optimizedInstanceTrackerFunctionString = [[local function GetInstancesFromDebugIds(...)
+    local ids = {...}
+    local instances = {}
+    local idCount = #ids -- micro optimizations
+    local find = table.find
+
+    for _,v in getnilinstances() do
+        local discovery = find(ids, v:GetDebugId())
+        if discovery then
+            instances[discovery] = v
+            if #instances == idCount then 
+                return unpack(instances)
+            end
+        end
+    end
+
+    for _,v in game:GetDescendants() do
+        local discovery = find(ids, v:GetDebugId())
+        if discovery then
+            instances[discovery] = v
+            if #instances == idCount then 
+                return unpack(instances)
+            end
+        end
+    end
+
+    return unpack(instances)
+end]]
+
+local instanceTrackerFunctionString = [[local function GetInstanceFromDebugId(id: string)
+    for _,v in getnilinstances() do
+        if v:GetDebugId() == id then
+            return v
+        end
+    end
+
+    for _,v in game:GetDescendants() do
+        if v:GetDebugId() == id then
+            return v
+        end
+    end
+end]]
 
 local red = colorRGB(255, 0, 0)
 local green = colorRGB(0, 255, 0)
@@ -445,7 +489,16 @@ local function purifyString(str: string, quotes: boolean, maxLength: number) -- 
     end
 end
 
-local gameId, workspaceId = game:GetDebugId(), workspace:GetDebugId()
+local gameId, workspaceId = getDebugId(game), getDebugId(workspace)
+
+local function instanceParentedToNil(instance)
+    local instanceId = instance:GetDebugId()
+    for _,v in getnilinstances() do
+        if v:GetDebugId() == instanceId then
+            return true
+        end
+    end
+end
 
 local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
     if not instance then return "NIL INSTANCE" end
@@ -453,41 +506,38 @@ local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
     local head = (#name > 0 and '.' .. name) or "['']"
     
     if not instance.Parent and instance ~= game then
-        return head .. " --[[ PARENTED TO NIL OR DESTROYED ]]"
+        if not instanceParentedToNil(instance) then
+            return head .. " --[[ INSTANCE DELETED FROM GAME ]]", false
+        else
+            return head .. " --[[ PARENTED TO NIL ]]", false
+        end
     end
-    local old = syn.get_thread_identity()
-    local id
-    if old < 3 then
-        syn.set_thread_identity(3)
-        id = instance:GetDebugId()
-        syn.set_thread_identity(old)
-    else
-        id = instance:GetDebugId()
-    end
+    setThreadIdentity(8)
+    local id = getDebugId(instance)
     
     if id == gameId then
-        return "game", true
+        return "game", true, true
     elseif id == workspaceId then
-        return "workspace", true
+        return "workspace", true, true
     else
         local plr = Players:GetPlayerFromCharacter(instance)
         if plr then
-            if plr:GetDebugId() == clientid then
-                return 'game:GetService("Players").LocalPlayer.Character', true
+            if getDebugId(plr) == clientid then
+                return 'game:GetService("Players").LocalPlayer.Character', true, true
             else
                 if tonumber(sub(plr.Name, 1, 1)) then
-                    return 'game:GetService("Players")["'..plr.Name..'"]".Character', true
+                    return 'game:GetService("Players")["'..plr.Name..'"]".Character', true, true
                 else
-                    return 'game:GetService("Players").'..plr.Name..'.Character', true
+                    return 'game:GetService("Players").'..plr.Name..'.Character', true, true
                 end
             end
         end
         local _success, result = pcall(game.GetService, game, instance.ClassName)
         
         if _success and result then
-            return 'game:GetService("' .. instance.ClassName .. '")', true
+            return 'game:GetService("' .. instance.ClassName .. '")', true, true
         elseif id == clientid then -- cloneref moment
-            return 'game:GetService("Players").LocalPlayer', true
+            return 'game:GetService("Players").LocalPlayer', true, true
         else
             local nonAlphaNum = gsub(name, '[%w_]', '')
             local noPunct = gsub(nonAlphaNum, '[%s%p]', '')
@@ -500,7 +550,7 @@ local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
         end
     end
     
-    return (getInstancePath(instance.Parent) .. head)
+    return (getInstancePath(instance.Parent) .. head), true
 end
 
 local userdataValue;
@@ -575,9 +625,9 @@ tableToString = function(data, format, call, debugMode, root, indents) -- FORKED
 
     if dataType == "userdata" or dataType == "vector" then
         if typeof(data) == "Instance" then
-            local str, bypasses = getInstancePath(data)
-            if (debugMode == 3 or (debugMode == 2 and sub(str, -2, -1) == "]]")) and not bypasses then
-                return ("GetInstanceFromDebugId(\"" .. data:GetDebugId() .."\")") .. (" -- Original Path: " .. str)
+            local str, parented, bypasses = getInstancePath(data)
+            if (debugMode == 3 or (debugMode == 2 and parented)) and not bypasses then
+                return ("GetInstanceFromDebugId(\"" .. getDebugId(data) .."\")") .. (" -- Original Path: " .. str)
             else
                 return str    
             end
@@ -834,29 +884,19 @@ local repeatCallSteps = {
     1000
 }
 
-local function getCountFromTable(tab: table, target)
-    local count = 0
-    for _,v in tab do
-        if v[1] == target then
-            count += 1
-        end
-    end
-    return count
-end
-
-local function genSendPseudo(rem, call, spyFunc, debugOverride)
+local function genSendPseudo(rem, call, spyFunc)
     local watermark = Settings.PseudocodeWatermark and "--Pseudocode Generated by GameGuy's Remote Spy\n" or ""
 
-    local debugMode = debugOverride and 3 or Settings.DebugIdMode
+    local debugMode = Settings.InstanceTrackerMode
 
     if debugMode == 3 or (debugMode == 2 and call.HasInstance) then
-        watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
+        watermark ..= (--[[Settings.OptimizedInstanceTracker and optimizedInstanceTrackerFunctionString or]] instanceTrackerFunctionString) .. "\n\n"
     else
         watermark ..= "\n"
     end
 
-    local pathStr = getInstancePath(rem)
-    local remPath = ((debugMode == 3 or ((debugMode == 2) and (sub(pathStr, -2, -1) == "]]"))) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
+    local pathStr, parented = getInstancePath(rem)
+    local remPath = ((debugMode == 3 or ((debugMode == 2) and not parented)) and ("GetInstanceFromDebugId(\"" .. getDebugId(rem) .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
 
     if #call.Args == 0 and call.NilCount == 0 then
         if spyFunc.Type == "Call" then
@@ -903,9 +943,9 @@ local function genSendPseudo(rem, call, spyFunc, debugOverride)
 
             if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
                 if typeof(arg) == "Instance" then
-                    local str, bypasses = getInstancePath(arg)
-                    if (debugMode == 3 or (debugMode == 2 and sub(str, -2, -1) == "]]")) and not bypasses then
-                        varConstructor = ("GetInstanceFromDebugId(\"" .. arg:GetDebugId() .."\")") .. (" -- Original Path: " .. str)
+                    local str, parented, bypasses = getInstancePath(arg)
+                    if (debugMode == 3 or (debugMode == 2 and not parented)) and not bypasses then
+                        varConstructor = ("GetInstanceFromDebugId(\"" .. getDebugId(arg) .."\")") .. (" -- Original Path: " .. str)
                     else
                         varConstructor = str
                     end
@@ -1166,18 +1206,18 @@ local function genReturnValuePseudo(returnTable, spyFunc)
 end
 
 local function genRecvPseudo(rem, call, spyFunc, watermark)
-    local watermark = watermark and "--Pseudocode Generated by GameGuy's Remote Spy\n\n" or ""
+    local watermark = watermark and "--Pseudocode Generated by GameGuy's Remote Spy\n" or ""
 
-    local debugMode = Settings.DebugIdMode
+    local debugMode = Settings.InstanceTrackerMode
 
     if debugMode == 3 or (debugMode == 2 and call.HasInstance) then
-        watermark ..= "local function GetInstanceFromDebugId(id: string)\n\tfor _,v in getinstances() do\n\t\tif v:GetDebugId() == id then\n\t\t\treturn v\n\t\tend\n\tend\nend\n\n"
+        watermark ..= (--[[Settings.OptimizedInstanceTracker and optimizedInstanceTrackerFunctionString or]] instanceTrackerFunctionString) .. "\n\n"
     else
         watermark ..= "\n"
     end
 
     local pathStr = getInstancePath(rem)
-    local remPath = ((debugMode == 3 or ((debugMode == 2) and (sub(pathStr, -2, -1) == "]]"))) and ("GetInstanceFromDebugId(\"" .. rem:GetDebugId() .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
+    local remPath = ((debugMode == 3 or ((debugMode == 2) and (sub(pathStr, -2, -1) == "]]"))) and ("GetInstanceFromDebugId(\"" .. getDebugId(rem) .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
 
     if spyFunc.Type == "Connection" then
         local pseudocode = ""
@@ -1490,11 +1530,19 @@ do -- pseudocode settings
     pseudocodeTab:Label("Instance Tracker")
     local combo3 = pseudocodeTab:Combo()
     combo3.Items = { "Off", "Nil Parented Only", "All Instances" }
-    combo3.SelectedItem = Settings.DebugIdMode
+    combo3.SelectedItem = Settings.InstanceTrackerMode
     tableInsert(_G.remoteSpyGuiConnections, combo3.OnUpdated:Connect(function(selection)
-        Settings.DebugIdMode = selection
+        Settings.InstanceTrackerMode = selection
         saveConfig()
     end))
+
+    --[[local checkBox5 = pseudocodeTab:CheckBox()
+    checkBox5.Label = "Optimized Instance Tracker"
+    checkBox5.Value = Settings.OptimizedInstanceTracker
+    tableInsert(_G.remoteSpyGuiConnections, checkBox5.OnUpdated:Connect(function(value)
+        Settings.OptimizedInstanceTracker = value
+        saveConfig()
+    end))]]
 end -- pseudocode settings
 
 do -- output settings
@@ -1790,19 +1838,19 @@ local function createCSDecompileButton(window, call, spyFunc)
     return con
 end
 
-local function repeatCall(call, remote, spyFunc, repeatCount)
+local function repeatCall(call, remote, remoteId, spyFunc, repeatCount)
     if spyFunc.Type == "Call" then
         local func = spyFunc.Function
         
         local success, result = pcall(function()
-            func = loadstring(genSendPseudo(remote, call, spyFunc, true))
             if spyFunc.ReturnsValue then
                 for _ = 1,repeatCount do
-                    spawnFunc(func) -- spawnFunc(func, remote, unpack(call.Args, 1, #call.Args + call.NilCount))
+                    originalCallerCache[remoteId] = {nil, true}
+                    spawnFunc(func, remote, unpack(call.Args, 1, #call.Args + call.NilCount))
                 end
             else
                 for _ = 1,repeatCount do
-                    func() -- func(remote, unpack(call.Args, 1, #call.Args + call.NilCount))
+                    spawnFunc(func, remote, unpack(call.Args, 1, #call.Args + call.NilCount)) -- shouldn't be task.spawned but needs to be because of oth.hook being weird
                 end
             end
         end)
@@ -1821,8 +1869,8 @@ local function repeatCall(call, remote, spyFunc, repeatCount)
     elseif spyFunc.Type == "Connection" then
         local success, result = pcall(function()
             for _ = 1,repeatCount do
-                originalCallerCache[remote] = {nil, true}
-                firesignal(call.Signal, unpack(call.Args, 1, #call.Args + call.NilCount)) -- cfiresignal has some vararg issues
+                originalCallerCache[remoteId] = {nil, true}
+                cfiresignal(call.Signal, unpack(call.Args, 1, #call.Args + call.NilCount))
             end
         end)
         if not success then
@@ -1831,14 +1879,14 @@ local function repeatCall(call, remote, spyFunc, repeatCount)
     end
 end
 
-local function createRepeatCallButton(window, call, remote, spyFunc, amt) -- NEEDS TO BE REDONE FOR CONS AND CALLBACKS
+local function createRepeatCallButton(window, call, remote, remoteId, spyFunc, amt) -- NEEDS TO BE REDONE FOR CONS AND CALLBACKS
     local button = window:Selectable()
     button.Label = amt and ("Repeat Call x" .. tostring(amt)) or "Repeat Call"
     button.Visible = true
 
     amt = amt or 1
 
-    local con = button.OnUpdated:Connect(function() repeatCall(call, remote, spyFunc, amt) end)
+    local con = button.OnUpdated:Connect(function() repeatCall(call, remote, remoteId, spyFunc, amt) end)
     tableInsert(_G.remoteSpyGuiConnections, con)
     return con
 end
@@ -1847,12 +1895,12 @@ local function createGenSendPCButton(window, call, remote, spyFunc)
     local button = window:Selectable()
     button.Label = "Generate Calling Pseudocode"
     local con = button.OnUpdated:Connect(function()
-        --local suc, ret = pcall(function()
+        local suc, ret = pcall(function()
             outputData(genSendPseudo(remote, call, spyFunc), Settings.PseudocodeOutput, "RS Pseudocode", "Generated Pseudocode")
-        --[[end)
+        end)
         if not suc then
             pushError("Failed to Generate Pseudocode", ret)
-        end]]
+        end
     end)
     tableInsert(_G.remoteSpyGuiConnections, con)
     return con
@@ -1993,7 +2041,7 @@ local function createCBDecompileButton(window, call, spyFunc)
     return con
 end
 
-local function makeRemoteViewerLog(call, remote)
+local function makeRemoteViewerLog(call, remote, remoteId)
     local totalArgCount = #call.Args + call.NilCount
     local spyFunc = spyFunctions[call.TypeIndex]
     local tempMainDummy = remoteViewerMainWindow:Dummy()
@@ -2029,10 +2077,10 @@ local function makeRemoteViewerLog(call, remote)
     if Settings.MoreRepeatCallOptions then
         pop:Separator()
         for _,v in repeatCallSteps do
-            createRepeatCallButton(pop, call, remote, spyFunc, v)
+            createRepeatCallButton(pop, call, remote, remoteId, spyFunc, v)
         end
     else
-        createRepeatCallButton(pop, call, remote, spyFunc)
+        createRepeatCallButton(pop, call, remote, remoteId, spyFunc)
     end
 
     local textFrame = childWindow:Dummy()
@@ -2221,24 +2269,24 @@ local function makeRemoteViewerLog(call, remote)
     tableInsert(argLines, { tempMainDummy, pop })
 end
 
-local function loadRemote(remote, data)
+local function loadRemote(remote, remoteId, data)
     local funcInfo = spyFunctions[data.TypeIndex]
     local logs = funcInfo.Type == "Call" and callLogs or otherLogs
     frontPage.Visible = false
     remotePage.Visible = true
-    currentSelectedRemote = remote
+    currentSelectedRemote = remoteId
     currentSelectedType = funcInfo.Type
     remotePageObjects.Name.Label = remote and resizeText(purifyString(remote.Name, false, remotePageObjects.Name.Size.X), remotePageObjects.Name.Size.X, "...   ", DefaultTextFont) or "NIL REMOTE"
     remotePageObjects.Icon.Label = funcInfo.Icon .. "   "
-    remotePageObjects.IgnoreButton.Label = (logs[remote].Ignored and "Unignore") or "Ignore"
-    remotePageObjects.IgnoreButtonFrame:SetColor(RenderColorOption.Text, (logs[remote].Ignored and green) or red, 1)
-    remotePageObjects.BlockButton.Label = (logs[remote].Blocked and "Unblock") or "Block"
-    remotePageObjects.BlockButtonFrame:SetColor(RenderColorOption.Text, (logs[remote].Blocked and green) or red, 1)
+    remotePageObjects.IgnoreButton.Label = (logs[remoteId].Ignored and "Unignore") or "Ignore"
+    remotePageObjects.IgnoreButtonFrame:SetColor(RenderColorOption.Text, (logs[remoteId].Ignored and green) or red, 1)
+    remotePageObjects.BlockButton.Label = (logs[remoteId].Blocked and "Unblock") or "Block"
+    remotePageObjects.BlockButtonFrame:SetColor(RenderColorOption.Text, (logs[remoteId].Blocked and green) or red, 1)
 
     addSpacer(remoteViewerMainWindow, 8)
 
-    for _,v in logs[remote].Calls do
-        makeRemoteViewerLog(v, remote)
+    for _,v in logs[remoteId].Calls do
+        makeRemoteViewerLog(v, remote, remoteId)
     end
 end
 
@@ -2366,7 +2414,7 @@ local function makeCopyPathButton(sameLine, remote)
     return con
 end
 
-local function makeClearLogsButton(sameLine, remote, method)
+local function makeClearLogsButton(sameLine, remoteId, method)
     local clearLogsButton = sameLine:Button()
     clearLogsButton.Label = "Clear Logs"
 
@@ -2374,18 +2422,18 @@ local function makeClearLogsButton(sameLine, remote, method)
     local logs = (method == "Call") and callLogs or otherLogs
 
     local con = clearLogsButton.OnUpdated:Connect(function()
-        tableClear(logs[remote].Calls)
-        lines[remote][3].Label = "0"
-        if not logs[remote].Ignored then
-            lines[remote][2].Visible = false
-            lines[remote][4].Visible = false
+        tableClear(logs[remoteId].Calls)
+        lines[remoteId][3].Label = "0"
+        if not logs[remoteId].Ignored then
+            lines[remoteId][2].Visible = false
+            lines[remoteId][4].Visible = false
         end
     end)
     tableInsert(_G.remoteSpyGuiConnections, con)
     return con
 end
 
-local function makeIgnoreButton(sameLine, remote, method)
+local function makeIgnoreButton(sameLine, remoteId, method)
     local spoofLine = sameLine:SameLine()
     spoofLine:SetColor(RenderColorOption.Text, red, 1)
     local ignoreButton = spoofLine:Button()
@@ -2394,8 +2442,8 @@ local function makeIgnoreButton(sameLine, remote, method)
     local logs = (method == "Call") and callLogs or otherLogs
     local funcList = (method == "Call") and callFuncs or otherFuncs
 
-    funcList[remote].UpdateIgnores = function()
-        if logs[remote].Ignored then
+    funcList[remoteId].UpdateIgnores = function()
+        if logs[remoteId].Ignored then
             ignoreButton.Label = "Unignore"
             spoofLine:SetColor(RenderColorOption.Text, green, 1)
         else
@@ -2405,12 +2453,12 @@ local function makeIgnoreButton(sameLine, remote, method)
     end
 
     local con = ignoreButton.OnUpdated:Connect(function()
-        if logs[remote].Ignored then
-            logs[remote].Ignored = false
+        if logs[remoteId].Ignored then
+            logs[remoteId].Ignored = false
             ignoreButton.Label = "Ignore"
             spoofLine:SetColor(RenderColorOption.Text, red, 1)
         else
-            logs[remote].Ignored = true
+            logs[remoteId].Ignored = true
             ignoreButton.Label = "Unignore"
             spoofLine:SetColor(RenderColorOption.Text, green, 1)
         end
@@ -2419,7 +2467,7 @@ local function makeIgnoreButton(sameLine, remote, method)
     return con
 end
 
-local function makeBlockButton(sameLine, remote, method)
+local function makeBlockButton(sameLine, remoteId, method)
     local spoofLine = sameLine:SameLine()
     spoofLine:SetColor(RenderColorOption.Text, red, 1)
     local blockButton = spoofLine:Button()
@@ -2428,8 +2476,8 @@ local function makeBlockButton(sameLine, remote, method)
     local logs = (method == "Call") and callLogs or otherLogs
     local funcList = (method == "Call") and callFuncs or otherFuncs
 
-    funcList[remote].UpdateBlocks = function()
-        if logs[remote].Blocked then
+    funcList[remoteId].UpdateBlocks = function()
+        if logs[remoteId].Blocked then
             spoofLine:SetColor(RenderColorOption.Text, green, 1)
             blockButton.Label = "Unblock"
         else
@@ -2439,12 +2487,12 @@ local function makeBlockButton(sameLine, remote, method)
     end
 
     local con = blockButton.OnUpdated:Connect(function()
-        if logs[remote].Blocked then
-            logs[remote].Blocked = false
+        if logs[remoteId].Blocked then
+            logs[remoteId].Blocked = false
             spoofLine:SetColor(RenderColorOption.Text, red, 1)
             blockButton.Label = "Block"
         else
-            logs[remote].Blocked = true
+            logs[remoteId].Blocked = true
             spoofLine:SetColor(RenderColorOption.Text, green, 1)
             blockButton.Label = "Unblock"
         end
@@ -2453,20 +2501,20 @@ local function makeBlockButton(sameLine, remote, method)
     return con
 end
 
-local function renderNewLog(remote, data)
+local function renderNewLog(remote, remoteId, data)
     local spyFunc = spyFunctions[data.TypeIndex]
     local method = spyFunc.Type
     local lines, log, funcList
     if method == "Call" then
         lines = callLines
-        log = callLogs[remote]
+        log = callLogs[remoteId]
         funcList = callFuncs
     else
         lines = otherLines
-        log = otherLogs[remote]
+        log = otherLogs[remoteId]
         funcList = otherFuncs
     end
-    funcList[remote] = {}
+    funcList[remoteId] = {}
 
     local temp = childWindow:Dummy():Indent(8)
     temp:SetStyle(RenderStyleOption.ItemSpacing, Vector2.new(4, 0))
@@ -2486,7 +2534,7 @@ local function renderNewLog(remote, data)
     remoteButton.Size = Vector2.new(width-327-4-14, 24)
     remoteButton.Label = spaces .. (remote and resizeText(purifyString(remote.Name, false, remoteButton.Size.X), remoteButton.Size.X, "...   ", DefaultTextFont) or "NIL REMOTE")
     local con = remoteButton.OnUpdated:Connect(function()
-        loadRemote(remote, data)
+        loadRemote(remote, remoteId, data)
     end)
     tableInsert(_G.remoteSpyGuiConnections, con)
     line[5] = { con }
@@ -2507,29 +2555,29 @@ local function renderNewLog(remote, data)
     local ind = sameButtonLine:Indent(width-333)
     
     tableInsert(line[5], makeCopyPathButton(ind, remote))
-    tableInsert(line[5], makeClearLogsButton(sameButtonLine, remote, method))
-    tableInsert(line[5], makeIgnoreButton(sameButtonLine, remote, method))
-    tableInsert(line[5], makeBlockButton(sameButtonLine, remote, method))
+    tableInsert(line[5], makeClearLogsButton(sameButtonLine, remoteId, method))
+    tableInsert(line[5], makeIgnoreButton(sameButtonLine, remoteId, method))
+    tableInsert(line[5], makeBlockButton(sameButtonLine, remoteId, method))
 
     line[4] = addSpacer(childWindow, 4)
     line[4].Visible = spyFunc.Enabled
 
-    lines[remote] = line
+    lines[remoteId] = line
     filterLines(searchBar.Value)
 end
 
-local function sendLog(remote, data)
+local function sendLog(remote, remoteId, data)
     local spyFunc = spyFunctions[data.TypeIndex]
     local method = spyFunc.Type
-    local check = (currentSelectedRemote == remote and currentSelectedType == method) and true
+    local check = (currentSelectedRemote == remoteId and currentSelectedType == method) and true
     
     local line, log
     if method == "Call" then
-        line = callLines[remote]
-        log = callLogs[remote]
+        line = callLines[remoteId]
+        log = callLogs[remoteId]
     else
-        line = otherLines[remote]
-        log = otherLogs[remote]
+        line = otherLines[remoteId]
+        log = otherLogs[remoteId]
     end
     
     tableInsert(log.Calls, data)
@@ -2558,11 +2606,11 @@ local function sendLog(remote, data)
         local callStr = (callAmt < 1000 and tostring(callAmt)) or "999+"
         line[3].Label = callStr
     else
-        renderNewLog(remote, data)
+        renderNewLog(remote, remoteId, data)
     end
 
     if check then
-        makeRemoteViewerLog(data, remote)
+        makeRemoteViewerLog(data, remote, remoteId)
     end
 end
 
@@ -2581,16 +2629,16 @@ local function processReturnValue(refTable, ...)
     return ...
 end
 
-local function addCall(remote, returnValue, spyFunc, caller, cs, ...)
-    if not callLogs[remote] then
-        callLogs[remote] = {
+local function addCall(remote, remoteId, returnValue, spyFunc, caller, cs, ...)
+    if not callLogs[remoteId] then
+        callLogs[remoteId] = {
             Blocked = false,
             Ignored = false,
             Calls = {}
         }
     end
-    if not callLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-        local args, tableDepth, hasTable, hasInstance = shallowClone({...}, -1) -- 1 deeper total
+    if not callLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+        local args, tableDepth, _, hasInstance = shallowClone({...}, -1) -- 1 deeper total
         local argCount = select("#", ...)
 
         if not args or argCount > 7995 or (tableDepth > 0 and ((argCount + tableDepth) > 298)) then
@@ -2606,21 +2654,25 @@ local function addCall(remote, returnValue, spyFunc, caller, cs, ...)
             NilCount = (argCount - #args),
             FromSynapse = caller
         }
-        sendLog(remote, data)
+        sendLog(remote, remoteId, data)
     end
 end
 
 local function addCallback(remote, method, func)
-    if not otherLogs[remote] then
-        otherLogs[remote] = {
+    local oldIdentity = getThreadIdentity()
+    setThreadIdentity(8)
+    local remoteId = getDebugId(remote)
+
+    if not otherLogs[remoteId] then
+        otherLogs[remoteId] = {
             Type = "Callback",
             CurrentFunction = func,
             Ignored = false,
             Blocked = false,
             Calls = {}
         }
-    elseif otherLogs[remote].CurrentFunction then
-        local curFunc = otherLogs[remote].CurrentFunction
+    elseif otherLogs[remoteId].CurrentFunction then
+        local curFunc = otherLogs[remoteId].CurrentFunction
         for i,v in _G.remoteSpyCallbackHooks do
             if v == curFunc then
                 tableRemove(_G.remoteSpyCallbackHooks, i)
@@ -2628,21 +2680,24 @@ local function addCallback(remote, method, func)
             end
         end
         restorefunction(curFunc)
-        otherLogs[remote].CurrentFunction = func
+        otherLogs[remoteId].CurrentFunction = func
     end
 
     if func then
         local oldfunc
         oldfunc = hookfunction(func, function(...) -- lclosure, so oth.hook not applicable
             if #debug.getcallstack() == 2 then -- check that the function is actually being called by a cclosure
+                local oldLevel = getThreadIdentity()
+                setThreadIdentity(8) -- fix for people passing coregui as an arg, also it's here because I'm too lazy to implement at the start of every hook.  Shouldn't be too dangerous because I restore it afterwards
+
                 if not Settings.Paused then
                     local spyFunc = spyFunctions[idxs[method]]
                     local args, _, _, hasInstance = shallowClone({...}, -1)
                     local argCount = select("#", ...)
 
-                    local callingScript = originalCallerCache[remote] or {nil, checkcaller()}
+                    local callingScript = originalCallerCache[remoteId] or {nil, checkcaller()}
 
-                    originalCallerCache[remote] = nil
+                    originalCallerCache[remoteId] = nil
 
                     
                     local scr = getcallingscript()
@@ -2654,30 +2709,32 @@ local function addCallback(remote, method, func)
                         CallbackScript = scr,
                         Script = callingScript[1],
                         Args = args, -- 2 deeper total
-                        CallbackLog = otherLogs[remote],
+                        CallbackLog = otherLogs[remoteId],
                         NilCount = (argCount - #args),
                         FromSynapse = callingScript[2]
                     }
 
-                    if spyFunc.ReturnsValue and not otherLogs[remote].Blocked then
+                    if spyFunc.ReturnsValue and not otherLogs[remoteId].Blocked then
                         local returnValue = {}
                         deferFunc(function()
-                            if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                            if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
                                 data.ReturnValue = returnValue
-                                sendLog(remote, data)
+                                sendLog(remote, remoteId, data)
                             end
                         end)
 
+                        setThreadIdentity(oldLevel)
                         return processReturnValue(returnValue, oldfunc(...))
                     end
                 
 
-                    if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                        sendLog(remote, data)
+                    if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                        sendLog(remote, remoteId, data)
                     end
                 end
-                
-                if otherLogs[remote] and otherLogs[remote].Blocked then 
+
+                setThreadIdentity(oldLevel)
+                if otherLogs[remoteId] and otherLogs[remoteId].Blocked then 
                     return
                 end
             end
@@ -2686,12 +2743,17 @@ local function addCallback(remote, method, func)
         end)
         tableInsert(_G.remoteSpyCallbackHooks, func)
     end
+    setThreadIdentity(oldIdentity)
 end
 
 local function addConnection(remote, signalType, signal)
-    if not otherLogs[remote] then
+    local oldIdentity = getThreadIdentity()
+    setThreadIdentity(8)
+    local remoteId = getDebugId(remote)
 
-        otherLogs[remote] = {
+    if not otherLogs[remoteId] then
+
+        otherLogs[remoteId] = {
             Type = "Connection",
             Ignored = false,
             Blocked = false,
@@ -2704,8 +2766,9 @@ local function addConnection(remote, signalType, signal)
         --[[hooksignal(signal, function(info, ...)
             if not Settings.Paused then
                 deferFunc(function(...)
+                    setThreadIdentity(8) -- coregui stupidity.  this is safe because the original thread will never see this activity
                     local spyFunc = spyFunctions[idxs[signalType]] --[[
-                    if not otherLogs[remote].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                    if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
                         if info.Index == 0 then
                             tableClear(connectionCache)
                             tableClear(scriptCache)
@@ -2721,9 +2784,9 @@ local function addConnection(remote, signalType, signal)
                             end
                         end
 
-                        local callingScript = originalCallerCache[remote] or {nil, false}
+                        local callingScript = originalCallerCache[remoteId] or {nil, false}
 
-                        originalCallerCache[remote] = nil
+                        originalCallerCache[remoteId] = nil
                         
                         if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
                             local args, _, _, hasInstance = shallowClone({...}, -1)
@@ -2740,19 +2803,20 @@ local function addConnection(remote, signalType, signal)
                                 FromSynapse = callingScript[2]
                             }
 
-                            sendLog(remote, data)
+                            sendLog(remote, remoteId, data)
                         end
                     end
                 end, ...)
             end
 
-            if otherLogs[remote].Blocked then 
+            if otherLogs[remoteId].Blocked then 
                 return false
             end
             return true, ...
-        end)]]
-        tableInsert(_G.remoteSpySignalHooks, signal)
+        end)
+        tableInsert(_G.remoteSpySignalHooks, signal)]]
     end
+    setThreadIdentity(oldIdentity)
 end
 
 local namecallFilters = {}
@@ -2793,7 +2857,7 @@ end
 
 local oldNewIndex -- this is for OnClientInvoke hooks
 oldNewIndex = newHookMetamethod(game, "__newindex", function(remote, idx, newidx)
-    addCallback(remote, idx, newidx)
+    addCallback(cloneref(remote), idx, newidx)
 
     return oldNewIndex(remote, idx, newidx)
 end, AnyFilter.new(newIndexFilters))
@@ -2802,7 +2866,7 @@ _G.remoteSpyHooks.NewIndex = oldNewIndex
 local oldIndex -- this is for signal indexing
 oldIndex = newHookMetamethod(game, "__index", function(remote, idx)
     local newSignal = oldIndex(remote, idx)
-    addConnection(remote, idx, newSignal)
+    addConnection(cloneref(remote), idx, newSignal)
 
     return newSignal
 end, AnyFilter.new(indexFilters))
@@ -2820,11 +2884,11 @@ do -- init OnClientInvoke and signal index
         local data = initInfo[v.ClassName]
         if data then
             if data[1] == "Connection" then
-                addConnection(v, data[2], v[data[2]])
+                addConnection(cloneref(v), data[2], v[data[2]])
             elseif data[1] == "Callback" then
                 local func = getcallbackmember(v, data[2])
                 if func then
-                    addCallback(v, data[2], func)
+                    addCallback(cloneref(v), data[2], func)
                 end
             end
         end
@@ -2834,11 +2898,11 @@ do -- init OnClientInvoke and signal index
         local data = initInfo[v.ClassName]
         if data then
             if data[1] == "Connection" then
-                addConnection(v, data[2], v[data[2]])
+                addConnection(cloneref(v), data[2], v[data[2]])
             elseif data[1] == "Callback" then
                 local func = getcallbackmember(v, data[2])
                 if func then
-                    addCallback(v, data[2], func)
+                    addCallback(cloneref(v), data[2], func)
                 end
             end
         end
@@ -2849,30 +2913,32 @@ end
 do -- namecall and function hooks
     local oldNamecall
     oldNamecall = newHookMetamethod(game, "__namecall", newcclosure(function(remote, ...)
+        setThreadIdentity(8) -- oth isn't stock at 8 for some reason
+        local remoteId = getDebugId(remote)
+
         if not Settings.Paused and select("#", ...) < 7996 then
-            
             local scr = getcallingscript()
             if scr then scr = cloneref(scr) end
 
             local spyFunc = spyFunctions[idxs[getnamecallmethod()]]
             if spyFunc.Type == "Call" and spyFunc.FiresLocally then
                 local caller = checkcaller()
-                originalCallerCache[remote] = originalCallerCache[remote] or {(not caller and scr), caller}
+                originalCallerCache[remoteId] = originalCallerCache[remoteId] or {(not caller and scr), caller}
             end
             -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
 
-            if spyFunc.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
+            if spyFunc.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then 
                 local returnValue = {}
-                deferFunc(addCall, remote, returnValue, spyFunc, checkcaller(), scr, ...)
+                deferFunc(addCall, cloneref(remote), remoteId, returnValue, spyFunc, checkcaller(), scr, ...)
                 
                 return processReturnValue(returnValue, oldNamecall(remote, ...))
             end
             
-            deferFunc(addCall, remote, nil, spyFunc, checkcaller(), scr, ...)
+            deferFunc(addCall, cloneref(remote), remoteId, nil, spyFunc, checkcaller(), scr, ...)
             --addCall(remote, nil, spyFunc, ...)
         end
     
-        if callLogs[remote] and callLogs[remote].Blocked then return end
+        if callLogs[remoteId] and callLogs[remoteId].Blocked then return end
 
         return oldNamecall(remote, ...)
     end), AnyFilter.new(namecallFilters))
@@ -2882,34 +2948,37 @@ do -- namecall and function hooks
         if v.Type == "Call" then
             local oldFunc
             local newfunction = function(remote, ...)
-                if not Settings.Paused and select("#", ...) < 7996 then
+                setThreadIdentity(8) -- oth isn't stock at 8 for some reason
+                local remoteId = getDebugId(remote)
 
+                if not Settings.Paused and select("#", ...) < 7996 then
                     local scr = getcallingscript()
                     if scr then scr = cloneref(scr) end
 
                     if v.Type == "Call" and v.FiresLocally then
                         local caller = checkcaller()
-                        originalCallerCache[remote] = originalCallerCache[remote] or {(not caller and scr), caller}
+                        originalCallerCache[remoteId] = originalCallerCache[remoteId] or {(not caller and scr), caller}
                     end
 
-                    if v.ReturnsValue and (not callLogs[remote] or not callLogs[remote].Blocked) then 
+                    if v.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then 
                         local returnValue = {}
-                        deferFunc(addCall, remote, returnValue, v, checkcaller(), scr, ...)
+                        deferFunc(addCall, cloneref(remote), remoteId, returnValue, v, checkcaller(), scr, ...)
 
                         return processReturnValue(returnValue, oldFunc(remote, ...))
                     end
-                    deferFunc(addCall, remote, nil, v, checkcaller(), scr, ...)
+                    deferFunc(addCall, cloneref(remote), remoteId, nil, v, checkcaller(), scr, ...)
                     --addCall(remote, nil, spyFunc, ...)
                 end
             
-                if callLogs[remote] and callLogs[remote].Blocked then return end
+                if callLogs[remoteId] and callLogs[remoteId].Blocked then return end
 
                 return oldFunc(remote, ...)
             end
 
-            oldFunc = filteredOth(Instance.new(v.Object)[v.Method], newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object)) 
+            local originalFunc = Instance.new(v.Object)[v.Method]
+            oldFunc = filteredOth(originalFunc, newcclosure(newfunction), InstanceTypeFilter.new(1, v.Object)) 
             
-            v.Function = oldFunc
+            v.Function = originalFunc
             _G.remoteSpyHooks[v.Method] = oldFunc
         end
     end

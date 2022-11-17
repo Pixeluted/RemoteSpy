@@ -2762,12 +2762,11 @@ local function addConnection(remote, signalType, signal)
         
         local scriptCache = setmetatable({}, {__mode = "k"})
         local connectionCache = {} -- unused (for now)
-        -- disabled for now
-        --[[hooksignal(signal, function(info, ...)
+        hooksignal(signal, function(info, ...)
             if not Settings.Paused then
                 deferFunc(function(...)
                     setThreadIdentity(8) -- coregui stupidity.  this is safe because the original thread will never see this activity
-                    local spyFunc = spyFunctions[idxs[signalType]] --[[
+                    local spyFunc = spyFunctions[idxs[signalType]]
                     if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
                         if info.Index == 0 then
                             tableClear(connectionCache)
@@ -2814,7 +2813,7 @@ local function addConnection(remote, signalType, signal)
             end
             return true, ...
         end)
-        tableInsert(_G.remoteSpySignalHooks, signal)]]
+        tableInsert(_G.remoteSpySignalHooks, signal)
     end
     setThreadIdentity(oldIdentity)
 end

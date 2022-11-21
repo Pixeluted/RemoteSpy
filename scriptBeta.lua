@@ -1594,8 +1594,7 @@ end -- credits
 
 remotePage.Visible = false
 
-local currentSelectedRemote = nil
-local currentSelectedType = nil
+local currentSelectedRemote, currentSelectedRemoteInstance, currentSelectedType
 
 local remotePageObjects = {
     Name = nil,
@@ -1613,6 +1612,7 @@ local function unloadRemote()
     frontPage.Visible = true
     remotePage.Visible = false
     currentSelectedRemote = nil
+    currentSelectedRemoteInstance = nil
     currentSelectedType = ""
     for _,v in argLines do
         v[2]:Clear()
@@ -1759,7 +1759,7 @@ do -- button bar code
     copyPathButton.Label = "Copy Path"
     tableInsert(_G.remoteSpyGuiConnections, copyPathButton.OnUpdated:Connect(function()
         if currentSelectedRemote then
-            local str = getInstancePath(currentSelectedRemote)
+            local str = getInstancePath(currentSelectedRemoteInstance)
             if type(str) == "string" then
                 outputData(str, 1, "", "Copied Path")
             else
@@ -2275,6 +2275,7 @@ local function loadRemote(remote, remoteId, data)
     frontPage.Visible = false
     remotePage.Visible = true
     currentSelectedRemote = remoteId
+    currentSelectedRemoteInstance = remote
     currentSelectedType = funcInfo.Type
     remotePageObjects.Name.Label = remote and resizeText(purifyString(remote.Name, false, remotePageObjects.Name.Size.X), remotePageObjects.Name.Size.X, "...   ", DefaultTextFont) or "NIL REMOTE"
     remotePageObjects.Icon.Label = funcInfo.Icon .. "   "

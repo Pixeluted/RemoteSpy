@@ -2993,7 +2993,7 @@ do -- namecall and function hooks
                 local returnValue = {}
                 deferFunc(addCall, cloneref(remote), remoteId, returnValue, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
 
-                return processReturnValue(oldIndex(remote, "ClassName"), returnValue, oldNamecall(remote, ...))
+                return processReturnValue(getproperties(remote).ClassName, returnValue, oldNamecall(remote, ...))
             end
             deferFunc(addCall, cloneref(remote), remoteId, nil, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
         end
@@ -3023,7 +3023,7 @@ do -- namecall and function hooks
                         local returnValue = {}
                         deferFunc(addCall, cloneref(remote), remoteId, returnValue, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
 
-                        return processReturnValue(oldIndex(remote, "ClassName"), returnValue, oldFunc(remote, ...))
+                        return processReturnValue(getproperties(remote).ClassName, returnValue, oldFunc(remote, ...))
                     end
                     deferFunc(addCall, cloneref(remote), remoteId, nil, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
                 end

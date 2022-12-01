@@ -13,6 +13,8 @@ if not RenderWindow then
     error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
 end
 
+syn.oth.unhook(mt.__namecall)
+
 local function cleanUpSpy()
     for _,v in _G.remoteSpyCallbackHooks do
         restorefunction(v)
@@ -376,14 +378,6 @@ local function shallowClone(myTable: table, callType: string, first: boolean, st
     local started = false
     local originalDepth = stack
 
-    if first then -- set any nils in the middle so the table size is correct (make it a consecutive index array)
-        for i = 1, #myTable do -- # is safe here because it's calling my own table, but getn could be used too
-            if not newTable[i] then
-                newTable[i] = nil
-            end
-        end
-    end
-
     if stack == 300 then -- this stack overflow check doesn't really matter as a stack overflow check, it's just here to make sure there are no cyclic tables.  While I could just check for cyclics directly, this is faster.
         return false, stack
     end
@@ -392,7 +386,6 @@ local function shallowClone(myTable: table, callType: string, first: boolean, st
         local primType = type(v)
         if primType == "table" then
             hasTable = true
-
             local newTab, maxStack, _, subHasNilParentedInstance = shallowClone(v, callType, false, originalDepth)
             hasNilParentedInstance = hasNilParentedInstance or subHasNilParentedInstance
             if maxStack > stack then
@@ -424,7 +417,15 @@ local function shallowClone(myTable: table, callType: string, first: boolean, st
             newTable[i] = v
         end
     end
-    
+
+    if first then -- set any nils in the middle so the table size is correct (make it a consecutive index array)
+        for i = 1, #myTable do -- # is safe here because it's calling my own table, but getn could be used too
+            if not newTable[i] then
+                newTable[i] = nil
+            end
+        end
+    end
+
     return newTable, stack, hasTable, hasNilParentedInstance
 end
 
@@ -771,7 +772,6 @@ end
 
 local spaces = "                 "
 local spaces2 = "        " -- 8 spaces
-local curPage = 1
 
 local idxs = {
     FireServer = 1,
@@ -1253,12 +1253,12 @@ local function genRecvPseudo(rem, call, spyFunc, watermark)
 end
 
 local otherLines = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local otherLogs =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local otherFuncs =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local originalCallerCache =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local callLines =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local callLogs =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local callFuncs =  setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local otherLogs = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local otherFuncs = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local originalCallerCache = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local callLines = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local callLogs = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local callFuncs = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
 
 local argLines = {}
 local callbackButtonline
@@ -2992,8 +2992,8 @@ do -- namecall and function hooks
             if spyFunc.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then
                 local returnValue = {}
                 deferFunc(addCall, cloneref(remote), remoteId, returnValue, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
-
-                return processReturnValue(getproperties(remote).ClassName, returnValue, oldNamecall(remote, ...))
+                
+                return processReturnValue(getproperties(remote).ClassName, returnValue, oldNamecall(remote, ...)) -- getproperties(remote).ClassName is not performant at all, but using oldIndex breaks stuff
             end
             deferFunc(addCall, cloneref(remote), remoteId, nil, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
         end

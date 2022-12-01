@@ -420,7 +420,7 @@ local function shallowClone(myTable: table, callType: string, first: boolean, st
 
     if first then -- set any nils in the middle so the table size is correct (make it a consecutive index array)
         for i = 1, #myTable do -- # is safe here because it's calling my own table, but getn could be used too
-            if not newTable[i] then
+            if newTable[i] == nil then
                 newTable[i] = nil
             end
         end

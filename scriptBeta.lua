@@ -13,8 +13,6 @@ if not RenderWindow then
     error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
 end
 
-syn.oth.unhook(mt.__namecall)
-
 local function cleanUpSpy()
     for _,v in _G.remoteSpyCallbackHooks do
         restorefunction(v)
@@ -1252,13 +1250,15 @@ local function genRecvPseudo(rem, call, spyFunc, watermark)
     end
 end
 
-local otherLines = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local otherLogs = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local otherFuncs = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local originalCallerCache = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local callLines = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local callLogs = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
-local callFuncs = setmetatable({}, {__mode = "k"}) -- incase they nil check the remote
+local otherLines = {}
+local otherLogs = {}
+local otherFuncs = {}
+local callLines = {}
+local callLogs = {}
+local callFuncs = {}
+
+local originalCallerCache = {}
+local remoteNameCache = {}
 
 local argLines = {}
 local callbackButtonline
@@ -2320,7 +2320,7 @@ local function loadRemote(remote, remoteId, data)
     currentSelectedRemote = remoteId
     currentSelectedRemoteInstance = remote
     currentSelectedType = funcInfo.Type
-    remotePageObjects.Name.Label = remote and resizeText(purifyString(remote.Name, false, remotePageObjects.Name.Size.X), remotePageObjects.Name.Size.X, "...   ", DefaultTextFont) or "NIL REMOTE"
+    remotePageObjects.Name.Label = remote and resizeText(purifyString(remoteNameCache[remoteId] or remote.Name, false, remotePageObjects.Name.Size.X), remotePageObjects.Name.Size.X, "...   ", DefaultTextFont) or "NIL REMOTE"
     remotePageObjects.Icon.Label = funcInfo.Icon .. "   "
     remotePageObjects.IgnoreButton.Label = (logs[remoteId].Ignored and "Unignore") or "Ignore"
     remotePageObjects.IgnoreButtonFrame:SetColor(RenderColorOption.Text, (logs[remoteId].Ignored and green) or red, 1)
@@ -2568,7 +2568,7 @@ local function renderNewLog(remote, remoteId, data)
 
     local remoteButton = sameButtonLine:Indent(6):Selectable()
     remoteButton.Size = Vector2.new(width-327-4-14, 24)
-    remoteButton.Label = spaces .. (remote and resizeText(purifyString(remote.Name, false, remoteButton.Size.X), remoteButton.Size.X, "...   ", DefaultTextFont) or "NIL REMOTE")
+    remoteButton.Label = spaces .. (remote and resizeText(purifyString(remoteNameCache[remoteId] or remote.Name, false, remoteButton.Size.X), remoteButton.Size.X, "...   ", DefaultTextFont) or "NIL REMOTE")
     remoteButton.OnUpdated:Connect(function()
         loadRemote(remote, remoteId, data)
     end)
@@ -2595,9 +2595,24 @@ local function renderNewLog(remote, remoteId, data)
 
     line[4] = addSpacer(childWindow, 4)
     line[4].Visible = spyFunc.Enabled
+    line[5] = remoteButton
 
     lines[remoteId] = line
     filterLines(searchBar.Value)
+end
+
+_G.ChangeRemoteSpyRemoteDisplayName = function(remote: Instance, newName: string)
+    local remoteId = remote:GetDebugId()
+    remoteNameCache[remoteId] = newName
+
+    local line = callLines[remoteId]
+    local line2 = otherLines[remoteId]
+    if line then
+        line[5].Label = spaces .. resizeText(purifyString(newName, false, line[5].Size.X), line[5].Size.X, "...   ", DefaultTextFont)
+    end
+    if line2 then
+        line2[5].Label = spaces .. resizeText(purifyString(newName, false, line2[5].Size.X), line2[5].Size.X, "...   ", DefaultTextFont)
+    end
 end
 
 local function sendLog(remote, remoteId, data)

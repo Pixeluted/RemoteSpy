@@ -52,7 +52,7 @@ local Players = cloneref(game:GetService("Players"))
 local client, clientid
 if not client then -- autoexec moment
     task.spawn(function()
-        repeat task.wait(); until Players.LocalPlayer
+        if not game:IsLoaded() then game.Loaded:Wait() end
         client = cloneref(Players.LocalPlayer)
         clientid = client:GetDebugId()
     end)
@@ -150,8 +150,7 @@ local DefaultTextFont = DrawFont.RegisterDefault("NotoSans_Regular", {
     PixelSize = fontSize
 })
 
-local getCallStack, getThread, getDebugId, getThreadIdentity, setThreadIdentity, getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack = debug.getcallstack, syn.oth.get_original_thread, game.GetDebugId, syn.get_thread_identity, syn.set_thread_identity, table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack
-
+local getCallStack, getOriginalThread, getDebugId, getThreadIdentity, setThreadIdentity, getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack = debug.getcallstack, syn.oth.get_original_thread, game.GetDebugId, syn.get_thread_identity, syn.set_thread_identity, table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack
 
 local oldIndex; -- this is for signal indexing
 local oldNewIndex; -- this is for OnClientInvoke hooks

@@ -150,7 +150,8 @@ local DefaultTextFont = DrawFont.RegisterDefault("NotoSans_Regular", {
     PixelSize = fontSize
 })
 
-local getCallStack, getOriginalThread, getDebugId, getThreadIdentity, setThreadIdentity, getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack = debug.getcallstack, syn.oth.get_original_thread, game.GetDebugId, syn.get_thread_identity, syn.set_thread_identity, table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack
+local getCallStack, get
+Thread, getDebugId, getThreadIdentity, setThreadIdentity, getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack = debug.getcallstack, syn.oth.get_original_thread, game.GetDebugId, syn.get_thread_identity, syn.set_thread_identity, table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack
 
 
 local oldIndex; -- this is for signal indexing
@@ -384,7 +385,7 @@ local function shallowClone(myTable: table, callType: string, first: boolean, st
         local primType = type(v)
         if primType == "table" then
             hasTable = true
-            local newTab, maxStack, _, subHasNilParentedInstance = shallowClone(v, callType, false, originalDepth)
+            local newTab, maxStack, _, subHasNilParentedInstance = shallowClone(v, callType, false, originalDepth+1)
             hasNilParentedInstance = hasNilParentedInstance or subHasNilParentedInstance
             if maxStack > stack then
                 stack = maxStack

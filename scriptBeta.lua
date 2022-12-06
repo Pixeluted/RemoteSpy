@@ -14,6 +14,8 @@ if not RenderWindow then
     error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
 end
 
+syn.oth.unhook(mt.__namecall)
+
 local function cleanUpSpy()
     for _,v in _G.remoteSpyCallbackHooks do
         restorefunction(v)
@@ -827,15 +829,19 @@ local remoteUserdataClone = {
 
 local function cloneUserdata(userdata: any, remoteType: string): any
     local cloneTable = (remoteType == "BindableEvent" or remoteType == "BindableFunction") and bindableUserdataClone or remoteUserdataClone
-    local func = cloneTable[typeof(userdata)]
+    local userdataType = typeof(userdata)
+    local func = cloneTable[userdataType]
     if not func then -- func was false
-        error("userdata not supported, please report to GameGuy#5286")
-        return
+        pushError("Unknown Userdata: \"" .. userdataType .. ",\" please report to GameGuy#5286")
+        local clone = newproxy(true)
+        getmetatable(clone).__tostring = function()
+            return userdataType
+        end
+        return clone -- userdata that I have never seen before
     else
         local clone = func(userdata)
         if clone == nil then
             clone = newproxy(true)
-            local userdataType = typeof(userdata)
             getmetatable(clone).__tostring = function()
                 return userdataType -- be careful here, if I were to put typeof(userdata) in, it would pass userdata as an upvalue, which would cause it to never gc, leading to a detection.
             end

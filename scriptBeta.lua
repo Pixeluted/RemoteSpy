@@ -14,8 +14,6 @@ if not RenderWindow then
     error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
 end
 
-syn.oth.unhook(mt.__namecall)
-
 local function cleanUpSpy()
     for _,v in _G.remoteSpyCallbackHooks do
         restorefunction(v)

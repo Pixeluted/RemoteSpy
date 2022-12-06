@@ -3,6 +3,7 @@
 -- TO DO:
     -- Make main window remote list use popups (depends on OnRightClick)
     -- Make arg list use right click (depends on defcon)
+    -- Currently, shallowClone sets unclonable objects to be userdatas with custom __tostring metamethods, but if the call is repeated, the userdatas get thrown away (for being in the args of the new call), making them not appear in the second call.  One solution is to somehow pass a key to the userdata that will verify it is from Synapse, another is to check the caller whenever allowing userdatas, but neither of these solutions seem perfectly clean to me.  Once a good solution is found, it will be implemented.
 
 local mt = getrawmetatable(game)
 if islclosure(mt.__namecall) or islclosure(mt.__index) or islclosure(mt.__newindex) then
@@ -152,6 +153,8 @@ local DefaultTextFont = DrawFont.RegisterDefault("NotoSans_Regular", {
 
 local getCallStack, getOriginalThread, getDebugId, getThreadIdentity, setThreadIdentity, getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack = debug.getcallstack, syn.oth.get_original_thread, game.GetDebugId, syn.get_thread_identity, syn.set_thread_identity, table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack
 
+local IsDescendantOf = game.IsDescendantOf
+
 local oldIndex; -- this is for signal indexing
 local oldNewIndex; -- this is for OnClientInvoke hooks
 
@@ -177,7 +180,7 @@ local optimizedInstanceTrackerFunctionString = [[local function GetInstancesFrom
         end
     end
 
-    for _,v in game:GetDescendants() do
+    for _,v in getweakdescendants(game) do
         local discovery = find(ids, v:GetDebugId())
         if discovery then
             instances[discovery] = v
@@ -190,14 +193,14 @@ local optimizedInstanceTrackerFunctionString = [[local function GetInstancesFrom
     return unpack(instances)
 end]]
 
-local instanceTrackerFunctionString = [[local function GetInstanceFromDebugId(id: string)
+local instanceTrackerFunctionString = [[local function GetInstanceFromDebugId(id: string): Instance
     for _,v in getnilinstances() do
         if v:GetDebugId() == id then
             return v
         end
     end
 
-    for _,v in game:GetDescendants() do
+    for _,v in getweakdescendants(game) do
         if v:GetDebugId() == id then
             return v
         end
@@ -358,14 +361,525 @@ local function outputData(source, destination, destinationTitle, successMessage)
     end
 end
 
---[[
-    * I need to make ShallowClone actually convert indexes correctly, as opposed to taking them at face value.
-        If the game passes an instance as an index to a sub table, it'll store it as a strong reference.
+local specialTypes = {
+    RBXScriptConnection = "Connection",
+    RBXScriptSignal = "EventInstance",
+    BrickColor = "int",
+    Rect = "Rect2D",
+    EnumItem = "token",
+    Enums = "void",
+    Enum = "void",
+    OverlapParams = "void",
+    userdata = "void",
+    RotationCurveKey = "void",
+    ["function"] = "Function",
+    table = "Table"
+}
 
-    * I need to make ShallowClone properly clone userdatas as opposed to just storing them directly.
-        Many userdatas gc, and they can tell that I'm storing them directly.
-        I can make unsupported gcs show up as unsupported and not store.
-]]
+local axis = Enum.Axis
+local normalId = Enum.NormalId
+
+local bindableUserdataClone = {
+    Axes = function(original: Axes): Axes
+        local args = {}
+        if original.X and not original.Left and not original.Right then
+            tableInsert(args, axis.X)
+        elseif original.Left then
+            tableInsert(args, normalId.Left)
+        end
+        if original.Right then
+            tableInsert(args, normalId.Right)
+        end
+
+        if original.Y and not original.Top and not original.Bottom then
+            tableInsert(args, axis.Y)
+        elseif original.Top then
+            tableInsert(args, normalId.Top)
+        end
+        if original.Bottom then
+            tableInsert(args, normalId.Bottom)
+        end
+
+        if original.Z and not original.Front and not original.Back then
+            tableInsert(args, axis.Z)
+        elseif original.Front then
+            tableInsert(args, normalId.Front)
+        end
+        if original.Back then
+            tableInsert(args, normalId.Back)
+        end
+
+        return Axes.new(unpack(args))
+    end,
+    BrickColor = function(original: BrickColor): BrickColor
+        return BrickColor.new(original.Number)
+    end,
+    CatalogSearchParams = function(original: CatalogSearchParams): CatalogSearchParams
+        local clone: CatalogSearchParams = CatalogSearchParams.new()
+        clone.AssetTypes = original.AssetTypes
+        clone.BundleTypes = original.BundleTypes
+        clone.CategoryFilter = original.CategoryFilter
+        clone.MaxPrice = original.MaxPrice
+        clone.MinPrice = original.MinPrice
+        clone.SearchKeyword = original.SearchKeyword
+        clone.SortType = original.SortType
+
+        return clone
+    end,
+    CFrame = function(original: CFrame): CFrame
+        return CFrame.fromMatrix(original.Position, original.XVector, original.YVector, original.ZVector)
+    end,
+    Color3 = function(original: Color3): Color3
+        return colorRGB(original.R, original.G, original.B)
+    end,
+    ColorSequence = function(original: ColorSequence): ColorSequence
+        return ColorSequence.new(original.Keypoints)
+    end,
+    ColorSequenceKeypoint = function(original: ColorSequenceKeypoint): ColorSequenceKeypoint
+        return ColorSequenceKeypoint.new(original.Time, original.Value)
+    end,
+    DateTime = function(original: DateTime): DateTime
+        return DateTime.fromUnixTimestamp(original.UnixTimestamp)
+    end,
+    DockWidgetPluginGuiInfo = function(original: DockWidgetPluginGuiInfo): DockWidgetPluginGuiInfo
+        local arguments: table = split(tostring(original), " ")
+        local dockState: string = sub(arguments[1], 18, -1)
+        local initialEnabled: boolean = tonumber(sub(arguments[2], 16, -1)) ~= 0
+        local initialShouldOverride: boolean = tonumber(sub(arguments[3], 38, -1)) ~= 0
+        local floatX: number = tonumber(sub(arguments[4], 15, -1)) 
+        local floatY: number = tonumber(sub(arguments[5], 15, -1))
+        local minWidth: number = tonumber(sub(arguments[6], 10, -1))
+        local minHeight: number = tonumber(sub(arguments[7], 11, -1))
+        -- can't read the properties so i have to tostring first :(
+
+        return DockWidgetPluginGuiInfo.new(Enum.InitialDockState[dockState], initialEnabled, initialShouldOverride, floatX, floatY, minWidth, minHeight)
+    end,
+    Enum = function(original: Enum): Enum
+        --return original -- enums don't gc
+        return false -- doesn't get sent
+    end,
+    EnumItem = function(original: EnumItem): EnumItem
+        return original -- enums don't gc
+    end,
+    Enums = function(original: Enums): Enums
+        --return original -- enums don't gc
+        return false -- doesn't get sent
+    end,
+    Faces = function(original: Faces): Faces
+        local args = {}
+        if original.Top then
+            tableInsert(args, normalId.Top)
+        end
+        if original.Bottom then
+            tableInsert(args, normalId.Bottom)
+        end
+        if original.Left then
+            tableInsert(args, normalId.Left)
+        end
+        if original.Right then
+            tableInsert(args, normalId.Right)
+        end
+        if original.Back then
+            tableInsert(args, normalId.Back)
+        end
+        if original.Front then
+            tableInsert(args, normalId.Front)
+        end
+
+        return Faces.new(unpack(args))
+    end,
+    FloatCurveKey = function(original: FloatCurveKey): FloatCurveKey
+        return FloatCurveKey.new(original.Time, original.Value, original.Interpolation)
+    end,
+    Font = function(original: Font): Font
+        local clone: Font = Font.new(original.Family, original.Weight, original.Style)
+        clone.Bold = original.Bold
+
+        return clone
+    end,
+    Instance = function(original: Instance): Instance
+        return cloneref(original)
+    end,
+    NumberRange = function(original: NumberRange): NumberRange
+        return NumberRange.new(original.Min, original.Max)
+    end,
+    NumberSequence = function(original: NumberSequence): NumberSequence
+        return NumberSequence.new(original.Keypoints)
+    end,
+    NumberSequenceKeypoint = function(original: NumberSequenceKeypoint): NumberSequenceKeypoint
+        return NumberSequenceKeypoint.new(original.Time, original.Value, original.Envelope)
+    end,
+    OverlapParams = function(original: OverlapParams): OverlapParams
+        --[[local clone: OverlapParams = OverlapParams.new()
+        clone.CollisionGroup = original.CollisionGroup
+        clone.FilterDescendantsInstances = original.FilterDescendantsInstances
+        clone.FilterType = original.FilterType
+        clone.MaxPart = original.MaxParts
+
+        return clone]]
+        return false -- doesn't get sent
+    end,
+    PathWaypoint = function(original: PathWaypoint): PathWaypoint
+        return PathWaypoint.new(original.Position, original.Action)
+    end,
+    PhysicalProperties = function(original: PhysicalProperties): PhysicalProperties
+        return PhysicalProperties.new(original.Density, original.Friction, original.Elasticity, original.FrictionWeight, original.ElasticityWeight)
+    end,
+    Random = function(original: Random): Random
+        --return original:Clone()
+        return false -- doesn't get sent
+    end,
+    Ray = function(original: Ray): Ray
+        return Ray.new(original.Origin, original.Direction)
+    end,
+    RaycastParams = function(original: RaycastParams): RaycastParams
+        local clone: RaycastParams = RaycastParams.new()
+        clone.CollisionGroup = original.CollisionGroup
+        clone.FilterDescendantsInstances = original.FilterDescendantsInstances
+        clone.FilterType = original.FilterType
+        clone.IgnoreWater = original.IgnoreWater
+
+        return clone
+    end,
+    RaycastResult = function(original: RaycastResult): RaycastResult
+        local params: RaycastParams = RaycastParams.new()
+        params.IgnoreWater = original.Material.Name ~= "Water"
+        params.FilterType = Enum.RaycastFilterType.Whitelist
+        params.FilterDescendantsInstances = { original.Instance }
+
+	    local startPos: Vector3 = original.Position+(original.Distance*original.Normal)
+
+        return workspace:Raycast(startPos, CFrame.lookAt(startPos, original.Position).LookVector*math.ceil(original.Distance), params)
+    end,
+    RBXScriptConnection = function(original: RBXScriptConnection): RBXScriptConnection
+        return nil -- can't be sent, unsupported, another option is to send the original, but that's detectable
+    end,
+    RBXScriptSignal = function(original: RBXScriptSignal): RBXScriptSignal
+        return nil -- can't be sent, unsupported
+    end,
+    Rect = function(original: Rect): Rect
+        return Rect.new(original.Min, original.Max)
+    end,
+    Region3 = function(original: Region3): Region3
+        local center = original.CFrame.Position
+
+        return Region3.new(center-original.Size/2, center+original.Size/2)
+    end,
+    Region3int16 = function(original: Region3int16): Region3int16
+        return Region3int16.new(original.Min, original.Max)
+    end,
+    RotationCurveKey = function(original: RotationCurveKey): RotationCurveKey
+        --return RotationCurveKey.new(original.Time, original.Value, original.Interpolation)
+        return false -- doesn't get sent
+    end,
+    TweenInfo = function(original: TweenInfo): TweenInfo
+        return TweenInfo.new(original.Time, original.EasingStyle, original.EasingDirection, original.RepeatCount, original.Reverses, original.DelayTime)
+    end,
+    UDim = function(original: UDim): UDim
+        return UDim.new(original.Scale, original.Offset)
+    end,
+    UDim2 = function(original: UDim2): UDim2
+        -- I've tested it and confirmed that even though they share identical X and Y userdata properties, they do not reference the same thing, and so gcing will not detect this.
+        return UDim2.new(original.X, original.Y)
+    end,
+    userdata = function(original) -- no typechecking for userdatas like this (newproxy)
+        return false -- doesn't get sent
+    end,
+    Vector2 = function(original: Vector2): Vector2
+        return Vector2.new(original.X, original.Y)
+    end,
+    Vector2int16 = function(original: Vector2int16): Vector2int16
+        return Vector2int16.new(original.X, original.Y)
+    end,
+    Vector3 = function(original: Vector3): Vector3
+        return Vector3.new(original.X, original.Y, original.Z)
+    end,
+    Vector3int16 = function(original: Vector3int16): Vector3int16
+        return Vector3int16.new(original.X, original.Y, original.Z)
+    end
+}
+
+local remoteUserdataClone = {
+    Axes = function(original: Axes): Axes
+        local args = {}
+        if original.X and not original.Left and not original.Right then
+            tableInsert(args, axis.X)
+        elseif original.Left then
+            tableInsert(args, normalId.Left)
+        end
+        if original.Right then
+            tableInsert(args, normalId.Right)
+        end
+
+        if original.Y and not original.Top and not original.Bottom then
+            tableInsert(args, axis.Y)
+        elseif original.Top then
+            tableInsert(args, normalId.Top)
+        end
+        if original.Bottom then
+            tableInsert(args, normalId.Bottom)
+        end
+
+        if original.Z and not original.Front and not original.Back then
+            tableInsert(args, axis.Z)
+        elseif original.Front then
+            tableInsert(args, normalId.Front)
+        end
+        if original.Back then
+            tableInsert(args, normalId.Back)
+        end
+
+        return Axes.new(unpack(args))
+    end,
+    BrickColor = function(original: BrickColor): BrickColor
+        return BrickColor.new(original.Number)
+    end,
+    CatalogSearchParams = function(original: CatalogSearchParams): CatalogSearchParams
+        --[[local clone: CatalogSearchParams = CatalogSearchParams.new()
+        clone.AssetTypes = original.AssetTypes
+        clone.BundleTypes = original.BundleTypes
+        clone.CategoryFilter = original.CategoryFilter
+        clone.MaxPrice = original.MaxPrice
+        clone.MinPrice = original.MinPrice
+        clone.SearchKeyword = original.SearchKeyword
+        clone.SortType = original.SortType
+
+        return clone]]
+        return false -- doesn't get sent
+    end,
+    CFrame = function(original: CFrame): CFrame
+        return CFrame.fromMatrix(original.Position, original.XVector, original.YVector, original.ZVector)
+    end,
+    Color3 = function(original: Color3): Color3
+        return colorRGB(original.R, original.G, original.B)
+    end,
+    ColorSequence = function(original: ColorSequence): ColorSequence
+        return ColorSequence.new(original.Keypoints)
+    end,
+    ColorSequenceKeypoint = function(original: ColorSequenceKeypoint): ColorSequenceKeypoint
+        return ColorSequenceKeypoint.new(original.Time, original.Value)
+    end,
+    DateTime = function(original: DateTime): DateTime
+        return DateTime.fromUnixTimestamp(original.UnixTimestamp)
+    end,
+    DockWidgetPluginGuiInfo = function(original: DockWidgetPluginGuiInfo): DockWidgetPluginGuiInfo
+        --[[local arguments: table = split(tostring(original), " ")
+        local dockState: string = sub(arguments[1], 18, -1)
+        local initialEnabled: boolean = tonumber(sub(arguments[2], 16, -1)) ~= 0
+        local initialShouldOverride: boolean = tonumber(sub(arguments[3], 38, -1)) ~= 0
+        local floatX: number = tonumber(sub(arguments[4], 15, -1)) 
+        local floatY: number = tonumber(sub(arguments[5], 15, -1))
+        local minWidth: number = tonumber(sub(arguments[6], 10, -1))
+        local minHeight: number = tonumber(sub(arguments[7], 11, -1))
+        -- can't read the properties so i have to tostring first :(
+            
+        return DockWidgetPluginGuiInfo.new(Enum.InitialDockState[dockState], initialEnabled, initialShouldOverride, floatX, floatY, minWidth, minHeight)]]
+        return false -- doesn't get sent
+    end,
+    Enum = function(original: Enum): Enum
+        --return original -- enums don't gc
+        return false -- doesn't get sent
+    end,
+    EnumItem = function(original: EnumItem): EnumItem
+        return original -- enums don't gc
+    end,
+    Enums = function(original: Enums): Enums
+        --return original -- enums don't gc
+        return false -- doesn't get sent
+    end,
+    Faces = function(original: Faces): Faces
+        local args = {}
+        if original.Top then
+            tableInsert(args, normalId.Top)
+        end
+        if original.Bottom then
+            tableInsert(args, normalId.Bottom)
+        end
+        if original.Left then
+            tableInsert(args, normalId.Left)
+        end
+        if original.Right then
+            tableInsert(args, normalId.Right)
+        end
+        if original.Back then
+            tableInsert(args, normalId.Back)
+        end
+        if original.Front then
+            tableInsert(args, normalId.Front)
+        end
+
+        return Faces.new(unpack(args))
+    end,
+    FloatCurveKey = function(original: FloatCurveKey): FloatCurveKey
+        --return FloatCurveKey.new(original.Time, original.Value, original.Interpolation)
+        return false -- doesn't get sent
+    end,
+    Font = function(original: Font): Font
+        local clone: Font = Font.new(original.Family, original.Weight, original.Style)
+        clone.Bold = original.Bold
+
+        return clone
+    end,
+    Instance = function(original: Instance): Instance
+        return cloneref(original)
+    end,
+    NumberRange = function(original: NumberRange): NumberRange
+        return NumberRange.new(original.Min, original.Max)
+    end,
+    NumberSequence = function(original: NumberSequence): NumberSequence
+        return NumberSequence.new(original.Keypoints)
+    end,
+    NumberSequenceKeypoint = function(original: NumberSequenceKeypoint): NumberSequenceKeypoint
+        return NumberSequenceKeypoint.new(original.Time, original.Value, original.Envelope)
+    end,
+    OverlapParams = function(original: OverlapParams): OverlapParams
+        --[[local clone: OverlapParams = OverlapParams.new()
+        clone.CollisionGroup = original.CollisionGroup
+        clone.FilterDescendantsInstances = original.FilterDescendantsInstances
+        clone.FilterType = original.FilterType
+        clone.MaxPart = original.MaxParts
+
+        return clone]]
+        return false -- doesn't get sent
+    end,
+    PathWaypoint = function(original: PathWaypoint): PathWaypoint
+        return PathWaypoint.new(original.Position, original.Action)
+    end,
+    PhysicalProperties = function(original: PhysicalProperties): PhysicalProperties
+        return PhysicalProperties.new(original.Density, original.Friction, original.Elasticity, original.FrictionWeight, original.ElasticityWeight)
+    end,
+    Random = function(original: Random): Random
+        --return original:Clone()
+        return false -- doesn't get sent
+    end,
+    Ray = function(original: Ray): Ray
+        return Ray.new(original.Origin, original.Direction)
+    end,
+    RaycastParams = function(original: RaycastParams): RaycastParams
+        --[[local clone: RaycastParams = RaycastParams.new()
+        clone.CollisionGroup = original.CollisionGroup
+        clone.FilterDescendantsInstances = original.FilterDescendantsInstances
+        clone.FilterType = original.FilterType
+        clone.IgnoreWater = original.IgnoreWater
+
+        return clone]]
+        return false -- doesn't get sent
+    end,
+    RaycastResult = function(original: RaycastResult): RaycastResult
+        --[[local params: RaycastParams = RaycastParams.new()
+        params.IgnoreWater = original.Material.Name ~= "Water"
+        params.FilterType = Enum.RaycastFilterType.Whitelist
+        params.FilterDescendantsInstances = { original.Instance }
+
+	    local startPos: Vector3 = original.Position+(original.Distance*original.Normal)
+
+        return workspace:Raycast(startPos, CFrame.lookAt(startPos, original.Position).LookVector*math.ceil(original.Distance), params)]]
+        return false -- doesn't get sent
+    end,
+    RBXScriptConnection = function(original: RBXScriptConnection): RBXScriptConnection
+        return false -- doesn't get sent
+    end,
+    RBXScriptSignal = function(original: RBXScriptSignal): RBXScriptSignal
+        return false -- doesn't get sent
+    end,
+    Rect = function(original: Rect): Rect
+        return Rect.new(original.Min, original.Max)
+    end,
+    Region3 = function(original: Region3): Region3
+        local center = original.CFrame.Position
+
+        return Region3.new(center-original.Size/2, center+original.Size/2)
+    end,
+    Region3int16 = function(original: Region3int16): Region3int16
+        return Region3int16.new(original.Min, original.Max)
+    end,
+    RotationCurveKey = function(original: RotationCurveKey): RotationCurveKey
+        --return RotationCurveKey.new(original.Time, original.Value, original.Interpolation)
+        return false -- doesn't get sent
+    end,
+    TweenInfo = function(original: TweenInfo): TweenInfo
+        --return TweenInfo.new(original.Time, original.EasingStyle, original.EasingDirection, original.RepeatCount, original.Reverses, original.DelayTime)
+        return false -- doesn't get sent
+    end,
+    UDim = function(original: UDim): UDim
+        return UDim.new(original.Scale, original.Offset)
+    end,
+    UDim2 = function(original: UDim2): UDim2
+        -- I've tested it and confirmed that even though they share identical X and Y userdata properties, they do not reference the same thing, and so gcing will not detect this.
+        return UDim2.new(original.X, original.Y)
+    end,
+    userdata = function(original) -- no typechecking for userdatas like this (newproxy)
+        return false -- doesn't get sent
+    end,
+    Vector2 = function(original: Vector2): Vector2
+        return Vector2.new(original.X, original.Y)
+    end,
+    Vector2int16 = function(original: Vector2int16): Vector2int16
+        return Vector2int16.new(original.X, original.Y)
+    end,
+    Vector3 = function(original: Vector3): Vector3
+        return Vector3.new(original.X, original.Y, original.Z)
+    end,
+    Vector3int16 = function(original: Vector3int16): Vector3int16
+        return Vector3int16.new(original.X, original.Y, original.Z)
+    end
+}
+
+local function cloneUserdata(userdata: any, remoteType: string): any
+    local cloneTable = (remoteType == "BindableEvent" or remoteType == "BindableFunction") and bindableUserdataClone or remoteUserdataClone
+    local func = cloneTable[typeof(userdata)]
+    if not func then -- func was false
+        error("userdata not supported, please report to GameGuy#5286")
+        return
+    else
+        local clone = func(userdata)
+        if clone == nil then
+            clone = newproxy(true)
+            local userdataType = typeof(userdata)
+            getmetatable(clone).__tostring = function()
+                return userdataType -- be careful here, if I were to put typeof(userdata) in, it would pass userdata as an upvalue, which would cause it to never gc, leading to a detection.
+            end
+            return clone -- userdatas are reserved for unclonable types because they can never be sent to the server
+        elseif not clone then
+            return -- userdata isn't sent to the server
+        else
+            return clone -- good userdata
+        end
+    end
+end
+
+local function getSpecialKey(userdata: any): string
+    if type(userdata) == "userdata" then
+        local prefix = specialTypes[typeof(userdata)] or typeof(userdata)
+        return "<" .. prefix .. ">" .. " (" .. tostring(userdata) .. ")"
+    end
+end
+
+local function cloneData(data: any, callType: string)
+    local primType: string = type(data)
+    if primType == "userdata" or primType == "vector" then
+        if typeof(data) == "Instance" and not IsDescendantOf(data, game) then
+            return cloneUserdata(data, callType), true
+        end
+
+        return cloneUserdata(data, callType)
+    elseif primType == "thread" then
+        return -- can't be sent
+    elseif primType == "function" and (callType == "RemoteEvent" or callType == "RemoteFunction") then
+        return -- can't be sent
+    else
+        return data -- any non cloneables (numbers, strings, etc)
+    end
+end
+
+local function createIndex(index: any) -- from my testing, calltype doesn't affect indexes
+    local primType = type(index)
+    if primType == "userdata" or primType == "vector" or primType == "function" or primType == "table" then
+        return getSpecialKey(index)
+    else
+        return index -- threads and nils are unhandled in this function because neither can be indexed by
+    end
+end
 
 local function shallowClone(myTable: table, callType: string, first: boolean, stack: number?) -- cyclic check built in
     stack = stack or 0 -- you can offset stack by setting the starting parameter to a number
@@ -380,38 +894,27 @@ local function shallowClone(myTable: table, callType: string, first: boolean, st
     end
     for i,v in next, myTable do
         if not started then started = true; stack += 1 end
-        local primType = type(v)
-        if primType == "table" then
-            hasTable = true
-            local newTab, maxStack, _, subHasNilParentedInstance = shallowClone(v, callType, false, originalDepth+1)
-            hasNilParentedInstance = hasNilParentedInstance or subHasNilParentedInstance
-            if maxStack > stack then
-                stack = maxStack
-            end
-            
-            if newTab then
-                newTable[i] = newTab
-            else
-                return false, stack -- stack overflow
-            end
-        elseif primType == "userdata" then
-            local mainType = typeof(v)
-            if mainType == "Instance" then
-                if not hasNilParentedInstance and not v.IsDescendantOf(v, game) then
-                    hasNilParentedInstance = true
+        local index, value = createIndex(i), nil
+        if index then
+            if type(v) == "table" then
+                hasTable = true
+                local newTab, maxStack, _, subHasNilParentedInstance = shallowClone(v, callType, false, originalDepth+1)
+                hasNilParentedInstance = hasNilParentedInstance or subHasNilParentedInstance
+                if maxStack > stack then
+                    stack = maxStack
                 end
-                newTable[i] = cloneref(v)
-            elseif mainType == "userdata" then -- newproxy()
-                newTable[i] = nil
+                
+                if newTab then
+                    value = newTab
+                else
+                    return false, stack -- stack overflow
+                end
             else
-                newTable[i] = v
+                local nilParented
+                value, nilParented = cloneData(v, callType)
+                hasNilParentedInstance = hasNilParentedInstance or nilParented
             end
-        elseif primType == "thread" then
-            newTable[i] = nil
-        elseif primType == "function" and (callType == "RemoteEvent" or callType == "RemoteFUnction") then
-            newTable[i] = nil
-        else
-            newTable[i] = v
+            newTable[index] = value
         end
     end
 
@@ -422,7 +925,6 @@ local function shallowClone(myTable: table, callType: string, first: boolean, st
             end
         end
     end
-
     return newTable, stack, hasTable, hasNilParentedInstance
 end
 
@@ -526,9 +1028,9 @@ local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
     
     if not instance.Parent and instance ~= game then
         if not instanceParentedToNil(instance) then
-            return head .. " --[[ INSTANCE DELETED FROM GAME ]]", false
+            return "(nil)" .. head .. " --[[ INSTANCE DELETED FROM GAME ]]", false
         else
-            return head .. " --[[ PARENTED TO NIL ]]", false
+            return "(nil)" .. head .. " --[[ PARENTED TO NIL ]]", false
         end
     end
     setThreadIdentity(8)
@@ -573,66 +1075,239 @@ local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
 end
 
 local tableToString;
+local makeUserdataConstructor = {
+    Axes = function(original: Axes): Axes
+        local constructor: string = "Axes.new("
+        if original.X and not original.Left and not original.Right then
+            constructor ..= "Enum.Axis.X, "
+        elseif original.Left then
+            constructor ..= "Enum.NormalId.Left, "
+        end
+        if original.Right then
+            constructor ..= "Enum.NormalId.Right, "
+        end
 
-local userdataValue = function(data: any) -- FORKED FROM HYDROXIDE
-    local dataType = typeof(data)
+        if original.Y and not original.Top and not original.Bottom then
+            constructor ..= "Enum.Axis.Y, "
+        elseif original.Top then
+            constructor ..= "Enum.NormalId.Top, "
+        end
+        if original.Bottom then
+            constructor ..= "Enum.NormalId.Bottom, "
+        end
 
-    if dataType == "userdata" then
-        return "nil"
-    elseif dataType == "Instance" then
-        return tostring(getInstancePath(data))
-    elseif dataType == "BrickColor" then
-        return dataType .. ".new(\"" .. tostring(data) .. "\")"
-    elseif
-        dataType == "TweenInfo" or
-        dataType == "Vector3" or
-        dataType == "Vector2" or
-        dataType == "CFrame" or
-        dataType == "Color3" or
-        dataType == "Random" or
-        dataType == "Faces" or
-        dataType == "UDim2" or
-        dataType == "UDim" or
-        dataType == "Rect" or
-        dataType == "Axes" or
-        dataType == "NumberRange" or
-        dataType == "RaycastParams" or
-        dataType == "PhysicalProperties"
-    then
-        return dataType .. ".new(" .. tostring(data) .. ")"
-    elseif dataType == "DateTime" then
-        return dataType .. ".now()"
-    elseif dataType == "PathWaypoint" then
-        local splitstr = split(tostring(data), '}, ')
-        local vector = gsub(splitstr[1], '{', "Vector3.new(")
-        return dataType .. ".new(" .. vector .. "), " .. splitstr[2] .. ')'
-    elseif dataType == "Ray" then
-        local splitstr = split(tostring(data), '}, ')
-        local vprimary = gsub(splitstr[1], '{', "Vector3.new(")
-        local vsecondary = gsub(gsub(splitstr[2], '{', "Vector3.new("), '}', ')')
-        return "Ray.new(" .. vprimary .. "), " .. vsecondary .. ')'
-    elseif dataType == "Region3" then
-        local size = data.Size
-        local position = data.CFrame.Position
+        if original.Z and not original.Front and not original.Back then
+            constructor ..= "Enum.Axis.Z, "
+        elseif original.Front then
+            constructor ..= "Enum.NormalId.Front, "
+        end
+        if original.Back then
+            constructor ..= "Enum.NormalId.Back, "
+        end
 
-        local startVec = "Vector3.new(" .. tostring(position.X - size.X/2) .. ", " .. tostring(position.Y - size.Y/2) .. ", " .. tostring(position.Z - size.Z/2) .. ")"
-        local endVec = "Vector3.new(" .. tostring(position.X + size.X/2) .. ", " .. tostring(position.Y + size.Y/2) .. ", " .. tostring(position.Z + size.Z/2) .. ")"
-        return "Region3.new(" .. startVec .. ", " .. endVec .. ")"
-    elseif dataType == "ColorSequence" or dataType == "NumberSequence" then 
-        return dataType .. ".new(" .. tableToString(data.Keypoints) .. ')'
-    elseif dataType == "ColorSequenceKeypoint" then
-        return "ColorSequenceKeypoint.new(" .. data.Time .. ", Color3.new(" .. tostring(data.Value) .. "))"
-    elseif dataType == "NumberSequenceKeypoint" then
-        local envelope = data.Envelope and data.Value .. ", " .. data.Envelope or data.Value
-        return "NumberSequenceKeypoint.new(" .. data.Time .. ", " .. envelope .. ")"
+        return (constructor ~= "Axes.new(" and sub(constructor, 0, -3) or constructor) .. ")"
+    end,
+    BrickColor = function(original: BrickColor): string
+        return "BrickColor.new(\"" .. original.Name .. "\")"
+    end,
+    CatalogSearchParams = function(original: CatalogSearchParams): string
+        return "nil --[[ CatalogSearchParams is Unsupported ]]"
+        --[[local clone: CatalogSearchParams = CatalogSearchParams.new()
+        clone.AssetTypes = original.AssetTypes
+        clone.BundleTypes = original.BundleTypes
+        clone.CategoryFilter = original.CategoryFilter
+        clone.MaxPrice = original.MaxPrice
+        clone.MinPrice = original.MinPrice
+        clone.SearchKeyword = original.SearchKeyword
+        clone.SortType = original.SortType
+
+        return clone]]
+    end,
+    CFrame = function(original: CFrame): string
+        return "CFrame.new(" .. tostring(original) .. ")"
+    end,
+    Color3 = function(original: Color3): string
+        return "Color3.new(" .. tostring(original) .. ")"
+    end,
+    ColorSequence = function(original: ColorSequence): string
+        return "ColorSequence.new(" .. tableToString(original.Keypoints, false) ..")"
+    end,
+    ColorSequenceKeypoint = function(original: ColorSequenceKeypoint): string
+        return "ColorSequenceKeypoint.new(" .. original.Time .. ", Color3.new(" .. tostring(original.Value) .. "))"
+    end,
+    DateTime = function(original: DateTime): string
+        return "DateTime.fromUnixTimestamp(" .. tostring(original.UnixTimestamp) .. ")"
+    end,
+    DockWidgetPluginGuiInfo = function(original: DockWidgetPluginGuiInfo): string
+        local arguments: table = split(tostring(original), " ")
+        local dockState: string = sub(arguments[1], 18, -1)
+        local initialEnabled: boolean = tonumber(sub(arguments[2], 16, -1)) ~= 0
+        local initialShouldOverride: boolean = tonumber(sub(arguments[3], 38, -1)) ~= 0
+        local floatX: number = tonumber(sub(arguments[4], 15, -1)) 
+        local floatY: number = tonumber(sub(arguments[5], 15, -1))
+        local minWidth: number = tonumber(sub(arguments[6], 10, -1))
+        local minHeight: number = tonumber(sub(arguments[7], 11, -1))
+        -- can't read the properties so i have to tostring first :(
+            
+        return "DockWidgetPluginGuiInfo.new(Enum.InitialDockState." .. dockState .. ", " .. tostring(initialEnabled) .. ", " .. tostring(initialShouldOverride) .. ", " ..  tostring(floatX) .. ", " ..  tostring(floatY) .. ", " ..  tostring(minWidth) .. ", " ..  tostring(minHeight) .. ")"
+    end,
+    Enum = function(original: Enum): string
+        return "Enum." .. tostring(original)
+    end,
+    EnumItem = function(original: EnumItem): string
+        return tostring(original)
+    end,
+    Enums = function(original: Enums): string
+        return "Enum"
+    end,
+    Faces = function(original: Faces): string
+        local constructor = "Faces.new("
+        if original.Top then
+            constructor ..= "Enum.NormalId.Top"
+        end
+        if original.Bottom then
+            constructor ..= "Enum.NormalId.Bottom"
+        end
+        if original.Left then
+            constructor ..= "Enum.NormalId.Left"
+        end
+        if original.Right then
+            constructor ..= "Enum.NormalId.Right"
+        end
+        if original.Back then
+            constructor ..= "Enum.NormalId.Back"
+        end
+        if original.Front then
+            constructor ..= "Enum.NormalId.Front"
+        end
+
+        return (constructor ~= "Faces.new(" and sub(constructor, 0, -3) or constructor) .. ")"
+    end,
+    FloatCurveKey = function(original: FloatCurveKey): string
+        return "FloatCurveKey.new(" .. tostring(original.Time) .. ", " .. tostring(original.Value) .. ", "  .. tostring(original.Interpolation) .. ")"
+    end,
+    Font = function(original: Font): string
+        return "nil --[[ Font is Unsupported ]]"
+        --[[local clone: Font = Font.new(original.Family, original.Weight, original.Style)
+        clone.Bold = original.Bold
+
+        return clone]]
+    end,
+    Instance = function(original: Instance): string
+        return getInstancePath(original)
+    end,
+    NumberRange = function(original: NumberRange): string
+        return "NumberRange.new(" .. tostring(original.Min) .. ", " .. tostring(original.Max) .. ")"
+    end,
+    NumberSequence = function(original: NumberSequence): string
+        return "NumberSequence.new(" .. tableToString(original.Keypoints, false) .. ")"
+    end,
+    NumberSequenceKeypoint = function(original: NumberSequenceKeypoint): string
+        return "NumberSequenceKeypoint.new(" .. tostring(original.Time) .. ", " .. tostring(original.Value) .. ", " .. tostring(original.Envelope) .. ")"
+    end,
+    OverlapParams = function(original: OverlapParams): OverlapParams
+        return "nil --[[ OverlapParams is Unsupported ]]"
+        --[[local clone: OverlapParams = OverlapParams.new()
+        clone.CollisionGroup = original.CollisionGroup
+        clone.FilterDescendantsInstances = original.FilterDescendantsInstances
+        clone.FilterType = original.FilterType
+        clone.MaxPart = original.MaxParts
+
+        return clone]]
+    end,
+    PathWaypoint = function(original: PathWaypoint): string
+        return "PathWaypoint.new(Vector3.new(" .. tostring(original.Position) .. "), " .. tostring(original.Action) .. ")"
+    end,
+    PhysicalProperties = function(original: PhysicalProperties): string
+        return "PhysicalProperties.new(" .. tostring(original) .. ")"
+    end,
+    Random = function(original: Random): string
+        return "Random.new()" -- detectable cause of seed change
+    end,
+    Ray = function(original: Ray): string
+        return "Ray.new(Vector3.new(" .. tostring(original.Origin) .. "), Vector3.new(" .. tostring(original.Direction) .. "))"
+    end,
+    RaycastParams = function(original: RaycastParams): string
+        return "nil --[[ RaycastParams is Unsupported ]]"
+        --[[local clone: RaycastParams = RaycastParams.new()
+        clone.CollisionGroup = original.CollisionGroup
+        clone.FilterDescendantsInstances = original.FilterDescendantsInstances
+        clone.FilterType = original.FilterType
+        clone.IgnoreWater = original.IgnoreWater
+
+        return clone]]
+    end,
+    RaycastResult = function(original: RaycastResult): string
+        return "nil --[[ RaycastResult is Unsupported ]]"
+        --[[local params: RaycastParams = RaycastParams.new()
+        params.IgnoreWater = original.Material.Name ~= "Water"
+        params.FilterType = Enum.RaycastFilterType.Whitelist
+        params.FilterDescendantsInstances = { original.Instance }
+
+	    local startPos: Vector3 = original.Position+(original.Distance*original.Normal)
+
+        return workspace:Raycast(startPos, CFrame.lookAt(startPos, original.Position).LookVector*math.ceil(original.Distance), params)]]
+    end,
+    RBXScriptConnection = function(original: RBXScriptConnection): string
+        return "nil --[[ RBXScriptConnection is Unsupported ]]"
+    end,
+    RBXScriptSignal = function(original: RBXScriptSignal): string
+        return "nil --[[ RBXScriptSignal is Unsupported ]]"
+    end,
+    Rect = function(original: Rect): string
+        return "Rect.new(Vector2.new(" .. tostring(original.Min) .. "), Vector2.new(" .. tostring(original.Max) .. "))"
+    end,
+    Region3 = function(original: Region3): string
+        local center = original.CFrame.Position
+
+        return "Region3.new(Vector3.new(" .. tostring(center-original.Size/2) .. "), Vector3.new(" .. tostring(center+original.Size/2) .. "))"
+    end,
+    Region3int16 = function(original: Region3int16): string
+        return "Region3int16.new(Vector3int16.new(" .. tostring(original.Min) .. "), Vector3int16.new(" .. tostring(original.Max) .. "))"
+    end,
+    RotationCurveKey = function(original: RotationCurveKey): RotationCurveKey
+        return "RotationCurveKey.new(" .. tostring(original.Time) .. ", CFrame.new(" .. tostring(original.Value) .. "), " .. tostring(original.Interpolation) .. ")"
+    end,
+    TweenInfo = function(original: TweenInfo): string
+        return "TweenInfo.new(" .. tostring(original.Time) .. ", " .. tostring(original.EasingStyle) .. ", " .. tostring(original.EasingDirection) .. ", " .. tostring(original.RepeatCount) .. ", " .. tostring(original.Reverses) .. ", " .. tostring(original.DelayTime) .. ")"
+    end,
+    UDim = function(original: UDim): string
+        return "UDim.new(" .. tostring(original) .. ")"
+    end,
+    UDim2 = function(original: UDim2): string
+        return "UDim2.new(" .. tostring(original) .. ")"
+    end,
+    userdata = function(original): string -- no typechecking for userdatas like this (newproxy)
+        return "nil --[[ " .. tostring(original) .. " is Unsupported ]]" -- newproxies can never be sent, and as such are reserved by the remotespy to be used when a type that could not be shallowcloned was sent.  The tostring metamethod should've been modified to refelct the original type.
+    end,
+    Vector2 = function(original: Vector2): string
+        return "Vector2.new(" .. tostring(original) .. ")"
+    end,
+    Vector2int16 = function(original: Vector2int16): string
+        return "Vector2int16.new(" .. tostring(original) .. ")"
+    end,
+    Vector3 = function(original: Vector3): string
+        return "Vector3.new(" .. tostring(original) .. ")"
+    end,
+    Vector3int16 = function(original: Vector3int16): string
+        return "Vector3int16.new(" .. tostring(original) .. ")"
     end
+}
 
-    return tostring(data) -- unsupported userdata
+local function getUserdataConstructor(userdata: any): string
+    local userdataType = typeof(userdata)
+    local constructorCreator = makeUserdataConstructor[userdataType]
+
+    if constructorCreator then
+        return constructorCreator(userdata)
+    else
+        return "nil --[[ " .. userdataType .. " is Unsupported ]]"
+    end
 end
 
 -- localized elsewhere
 
-tableToString = function(data, format, call, debugMode, root, indents) -- FORKED FROM HYDROXIDE
+tableToString = function(data, format, debugMode, root, indents) -- FORKED FROM HYDROXIDE
     local dataType = type(data)
 
     format = format == nil and true or format
@@ -641,12 +1316,12 @@ tableToString = function(data, format, call, debugMode, root, indents) -- FORKED
         if typeof(data) == "Instance" then
             local str, parented, bypasses = getInstancePath(data)
             if (debugMode == 3 or (debugMode == 2 and parented)) and not bypasses then
-                return ("GetInstanceFromDebugId(\"" .. getDebugId(data) .."\")") .. (" -- Original Path: " .. str)
+                return ("GetInstanceFromDebugId(\"" .. getDebugId(data) .."\")") .. (" --[[ Original Path: " .. str..(parented and " ]]" or ""))
             else
                 return str    
             end
         else
-            return userdataValue(data)
+            return getUserdataConstructor(data)
         end
     elseif dataType == "string" then
         local success, result = pcall(purifyString, data, true)
@@ -666,15 +1341,15 @@ tableToString = function(data, format, call, debugMode, root, indents) -- FORKED
                     if type(i) == "string" then continue end
 
                     if i ~= (elements + 1) then
-                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, true, call, debugMode, root, indents + 1))
+                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, true, debugMode, root, indents + 1))
                     else
-                        head ..= strformat("%s%s,\n", indent, tableToString(v, true, call, debugMode, root, indents + 1))
+                        head ..= strformat("%s%s,\n", indent, tableToString(v, true, debugMode, root, indents + 1))
                     end
                     elements += 1
                 end
             else
                 for i,v in data do
-                    head ..= strformat("%s[%s] = %s,\n", indent, tableToString(i, true, call, debugMode, root, indents + 1), tableToString(v, true, call, debugMode, root, indents + 1))
+                    head ..= strformat("%s[%s] = %s,\n", indent, tableToString(i, true, debugMode, root, indents + 1), tableToString(v, true, debugMode, root, indents + 1))
                 end
             end
         else
@@ -683,15 +1358,15 @@ tableToString = function(data, format, call, debugMode, root, indents) -- FORKED
                     if type(i) == "string" then continue end
 
                     if i ~= (elements + 1) then
-                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, false, call, debugMode, root, indents + 1))
+                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, false, debugMode, root, indents + 1))
                     else
-                        head ..= strformat("%s, ", tableToString(v, false, call, debugMode, root, indents + 1))
+                        head ..= strformat("%s, ", tableToString(v, false, debugMode, root, indents + 1))
                     end
                     elements += 1
                 end
             else
                 for i,v in data do
-                    head ..= strformat("[%s] = %s, ", tableToString(i, false, call, debugMode, root, indents + 1), tableToString(v, false, call, debugMode, root, indents + 1))
+                    head ..= strformat("[%s] = %s, ", tableToString(i, false, debugMode, root, indents + 1), tableToString(v, false, debugMode, root, indents + 1))
                 end
             end
         end
@@ -760,7 +1435,7 @@ local function getArgString(arg, maxLength)
         local st = types[t]
         return st[2](arg, maxLength), st[1]
     elseif t == "userdata" or t == "vector" then
-        local st = userdataValue(arg)
+        local st = getUserdataConstructor(arg)
         return st, (typeof(arg) == "Instance" and colorHSV(57/360, 0.8, 1)) or colorHSV(314/360, 0.8, 1)
     else
         return ("Unprocessed Lua Type: " .. tostring(t)), colorRGB(1, 1, 1)
@@ -956,10 +1631,10 @@ local function genSendPseudo(rem, call, spyFunc)
                         varConstructor = str
                     end
                 else
-                    varConstructor = userdataValue(arg)
+                    varConstructor = getUserdataConstructor(arg)
                 end
             elseif primTyp == "table" then
-                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, call, debugMode)
+                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, debugMode)
             elseif primTyp == "string" then
                 varConstructor = purifyString(arg, true)
             elseif primTyp == "function" then
@@ -1098,9 +1773,9 @@ local function genReturnValuePseudo(returnTable, spyFunc)
             local varConstructor = ""
 
             if primTyp == "userdata" or primTyp == "vector" then -- roblox should just get rid of vector already
-                varConstructor = userdataValue(arg)
+                varConstructor = getUserdataConstructor(arg)
             elseif primTyp == "table" then
-                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, returnTable, 1)
+                varConstructor = tableToString(arg, Settings.PseudocodeFormatTables, 1)
             elseif primTyp == "string" then
                 varConstructor = purifyString(arg, true)
             elseif primTyp == "function" then
@@ -2775,7 +3450,6 @@ local function addCallback(remote, method, func)
                     local callingScript = originalCallerCache[remoteId] or {nil, checkcaller()}
 
                     originalCallerCache[remoteId] = nil
-
                     
                     local scr = getcallingscript()
                     if scr then scr = cloneref(scr) end
@@ -2957,7 +3631,7 @@ local initInfo = {
 }
 
 do -- init OnClientInvoke and signal index
-    for _,v in game:GetDescendants() do
+    for _,v in getweakdescendants(game) do
         local data = initInfo[v.ClassName]
         if data then
             if data[1] == "Connection" then

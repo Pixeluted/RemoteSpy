@@ -936,10 +936,6 @@ local function shallowClone(myTable: table, callType: string, stack: number?) --
         end
     end
 
-    for i,v in newTable do
-        warn("sc", i, v)
-    end
-
     return newTable, stack, hasTable, hasNilParentedInstance
 end
 

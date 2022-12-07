@@ -885,50 +885,61 @@ local function createIndex(index: any) -- from my testing, calltype doesn't affe
     end
 end
 
-local function shallowClone(myTable: table, callType: string, first: boolean, stack: number?) -- cyclic check built in
+-- this function should only be used on shallowClone({...}), and only on the first table, where we can be sure that it should be all number indices and all in order, this is unsafe to use on any other tables.
+local function getLastIndex(tbl: table): number
+    local final: number = 0
+    for i in tbl do
+        final = i
+    end
+
+    return final
+end
+
+local function shallowClone(myTable: table, callType: string, stack: number?) -- cyclic check built in
     stack = stack or 0 -- you can offset stack by setting the starting parameter to a number
     local newTable = {}
     local hasTable = false
     local hasNilParentedInstance = false
     local started = false
     local originalDepth = stack
+    local consecutiveIndices = getn(myTable)
+    local isConsecutive = (consecutiveIndices ~= 0)
 
     if stack == 300 then -- this stack overflow check doesn't really matter as a stack overflow check, it's just here to make sure there are no cyclic tables.  While I could just check for cyclics directly, this is faster.
         return false, stack
     end
     for i,v in next, myTable do
-        if not started then started = true; stack += 1 end
-        local index, value = createIndex(i), nil
-        if index then
-            if type(v) == "table" then
-                hasTable = true
-                local newTab, maxStack, _, subHasNilParentedInstance = shallowClone(v, callType, false, originalDepth+1)
-                hasNilParentedInstance = hasNilParentedInstance or subHasNilParentedInstance
-                if maxStack > stack then
-                    stack = maxStack
-                end
-                
-                if newTab then
-                    value = newTab
+        if not isConsecutive or type(i) == "number" and i <= consecutiveIndices then
+            if not started then started = true; stack += 1 end
+            local index, value = createIndex(i), nil
+            if index then
+                if type(v) == "table" then
+                    hasTable = true
+                    local newTab, maxStack, _, subHasNilParentedInstance = shallowClone(v, callType, originalDepth+1)
+                    hasNilParentedInstance = hasNilParentedInstance or subHasNilParentedInstance
+                    if maxStack > stack then
+                        stack = maxStack
+                    end
+                    
+                    if newTab then
+                        value = newTab
+                    else
+                        return false, stack -- stack overflow
+                    end
                 else
-                    return false, stack -- stack overflow
+                    local nilParented
+                    value, nilParented = cloneData(v, callType)
+                    hasNilParentedInstance = hasNilParentedInstance or nilParented
                 end
-            else
-                local nilParented
-                value, nilParented = cloneData(v, callType)
-                hasNilParentedInstance = hasNilParentedInstance or nilParented
+                newTable[index] = value
             end
-            newTable[index] = value
         end
     end
 
-    if first then -- set any nils in the middle so the table size is correct (make it a consecutive index array)
-        for i = 1, #myTable do -- # is safe here because it's calling my own table, but getn could be used too
-            if newTable[i] == nil then
-                newTable[i] = nil
-            end
-        end
+    for i,v in newTable do
+        warn("sc", i, v)
     end
+
     return newTable, stack, hasTable, hasNilParentedInstance
 end
 
@@ -1336,20 +1347,22 @@ tableToString = function(data, format, debugMode, root, indents) -- FORKED FROM 
 
         local head = format and '{\n' or '{ '
         local indent = rep('\t', indents)
-        local orderedNumbers = (#pack(ipairs(data))[2] ~= 0)
-        local elements = 0
+        local consecutiveIndices = (#data ~= 0)
+        local elementCount = 0
         -- moved checkCyclic check to hook
         if format then
-            if orderedNumbers then
+            if consecutiveIndices then
                 for i,v in data do
-                    if type(i) == "string" then continue end
+                    elementCount += 1
+                    if type(i) ~= "number" then continue end
 
-                    if i ~= (elements + 1) then
-                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, true, debugMode, root, indents + 1))
-                    else
-                        head ..= strformat("%s%s,\n", indent, tableToString(v, true, debugMode, root, indents + 1))
+                    if i ~= elementCount then
+                        for _ = 1, (i-elementCount) do
+                            head ..= (indent .. "nil,\n")
+                        end
+                        elementCount = i
                     end
-                    elements += 1
+                    head ..= strformat("%s%s,\n", indent, tableToString(v, true, debugMode, root, indents + 1))
                 end
             else
                 for i,v in data do
@@ -1357,16 +1370,18 @@ tableToString = function(data, format, debugMode, root, indents) -- FORKED FROM 
                 end
             end
         else
-            if orderedNumbers then
+            if consecutiveIndices then
                 for i,v in data do
-                    if type(i) == "string" then continue end
+                    elementCount += 1
+                    if type(i) ~= "number" then continue end
 
-                    if i ~= (elements + 1) then
-                        head ..= strformat("%s[%s] = %s,\n", indent, tostring(i), tableToString(v, false, debugMode, root, indents + 1))
-                    else
-                        head ..= strformat("%s, ", tableToString(v, false, debugMode, root, indents + 1))
+                    if i ~= elementCount then
+                        for _ = 1, (i-elementCount) do
+                            head ..= "nil, "
+                        end
+                        elementCount = i
                     end
-                    elements += 1
+                    head ..= (tableToString(v, false, debugMode, root, indents + 1) .. ", ")
                 end
             else
                 for i,v in data do
@@ -1588,7 +1603,7 @@ local function genSendPseudo(rem, call, spyFunc)
     local pathStr, parented = getInstancePath(rem)
     local remPath = ((debugMode == 3 or ((debugMode == 2) and not parented)) and ("GetInstanceFromDebugId(\"" .. getDebugId(rem) .."\")" .. " -- Original Path: " .. pathStr)) or pathStr
 
-    if #call.Args == 0 and call.NilCount == 0 then
+    if call.NonNilArgCount == 0 and call.NilCount == 0 then
         if spyFunc.Type == "Call" then
             return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n\n" .. (spyFunc.ReturnsValue and ("local "..sub(repeatStringWithIndex("returnValue", ", ", #call.ReturnValue.Args), 1, -3).." = ") or "") .. "remote:") or (remPath .. ":")) .. spyFunc.Method .."()"
         elseif spyFunc.Type == "Connection" then
@@ -1603,7 +1618,7 @@ local function genSendPseudo(rem, call, spyFunc)
         local pseudocode = ""
         local addedArg = false
 
-        for i = 1, #call.Args do
+        for i = 1, call.NonNilArgCount do
             local arg = call.Args[i]
             local primTyp = type(arg)
             local tempTyp = typeof(arg)
@@ -1895,13 +1910,13 @@ local function genRecvPseudo(rem, call, spyFunc, watermark)
         local pseudocode = ""
         
         pseudocode ..= Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "") .." = " .. remPath .. "\nremote." .. spyFunc.Connection .. ":Connect(function(") or (remPath .. "." .. spyFunc.Connection .. ":Connect(function(")
-        for i = 1,#call.Args do
+        for i = 1,call.NonNilArgCount do
             pseudocode ..= "p" .. tostring(i) .. ", "
         end
         pseudocode = (sub(pseudocode, 1, -3) .. ")")
 
         pseudocode ..= "\n\tprint("
-        for i = 1,#call.Args do
+        for i = 1,call.NonNilArgCount do
             pseudocode ..= "p"..tostring(i) .. ", "
         end
         pseudocode = (sub(pseudocode, 1, -3) .. ")")
@@ -1912,13 +1927,13 @@ local function genRecvPseudo(rem, call, spyFunc, watermark)
         local pseudocode = ""
 
         pseudocode ..= Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\nremote." .. spyFunc.Callback .. " = function(") or (remPath .. "." .. spyFunc.Callback .. " = function(")
-        for i = 1,#call.Args do
+        for i = 1,call.NonNilArgCount do
             pseudocode ..= "p"..tostring(i) .. ", "
         end
         pseudocode = (sub(pseudocode, 1, -3) .. ")")
 
         pseudocode ..= "\n\tprint("
-        for i = 1,#call.Args do
+        for i = 1,call.NonNilArgCount do
             pseudocode ..= "p"..tostring(i) .. ", "
         end
         pseudocode = (sub(pseudocode, 1, -3) .. ")")
@@ -2542,11 +2557,11 @@ local function repeatCall(call, remote, remoteId, spyFunc, repeatCount)
             if spyFunc.ReturnsValue then
                 for _ = 1,repeatCount do
                     originalCallerCache[remoteId] = {nil, true}
-                    spawnFunc(func, remote, unpack(call.Args, 1, #call.Args + call.NilCount))
+                    spawnFunc(func, remote, unpack(call.Args, 1, call.NonNilArgCount + call.NilCount))
                 end
             else
                 for _ = 1,repeatCount do
-                    spawnFunc(func, remote, unpack(call.Args, 1, #call.Args + call.NilCount)) -- shouldn't be task.spawned but needs to be because of oth.hook being weird
+                    spawnFunc(func, remote, unpack(call.Args, 1, call.NonNilArgCount + call.NilCount)) -- shouldn't be task.spawned but needs to be because of oth.hook being weird
                 end
             end
         end)
@@ -2556,7 +2571,7 @@ local function repeatCall(call, remote, remoteId, spyFunc, repeatCount)
     elseif spyFunc.Type == "Callback" then
         local success, result = pcall(function()
             for _ = 1,repeatCount do
-                spawnFunc(call.CallbackLog.CurrentFunction, unpack(call.Args, 1, #call.Args + call.NilCount)) -- always spawned to make callstack look legit
+                spawnFunc(call.CallbackLog.CurrentFunction, unpack(call.Args, 1, call.NonNilArgCount + call.NilCount)) -- always spawned to make callstack look legit
             end
         end)
         if not success then
@@ -2566,7 +2581,7 @@ local function repeatCall(call, remote, remoteId, spyFunc, repeatCount)
         local success, result = pcall(function()
             for _ = 1,repeatCount do
                 originalCallerCache[remoteId] = {nil, true}
-                cfiresignal(call.Signal, unpack(call.Args, 1, #call.Args + call.NilCount))
+                cfiresignal(call.Signal, unpack(call.Args, 1, call.NonNilArgCount + call.NilCount))
             end
         end)
         if not success then
@@ -2760,7 +2775,7 @@ local function createCBDecompileButton(window, call, spyFunc)
 end
 
 local function makeRemoteViewerLog(call, remote, remoteId)
-    local totalArgCount = #call.Args + call.NilCount
+    local totalArgCount = call.NonNilArgCount + call.NilCount
     local spyFunc = spyFunctions[call.TypeIndex]
     local tempMainDummy = remoteViewerMainWindow:Dummy()
     local tempMain = tempMainDummy:SameLine()
@@ -2852,7 +2867,7 @@ local function makeRemoteViewerLog(call, remote, remoteId)
         if totalArgCount == 0 then
             argFrame:SetColor(RenderColorOption.Text, colorRGB(156, 0, 0), 1)
             lineContents.Label = spaces2 .. "nil"
-        elseif #call.Args == 1 then
+        elseif call.NonNilArgCount == 1 then
             local text, color = getArgString(call.Args[1], lineContents.Size.X)
             local str = resizeText(spaces2 .. text, lineContents.Size.X, "...   ", DefaultTextFont)
             lineContents.Label = str
@@ -2878,7 +2893,7 @@ local function makeRemoteViewerLog(call, remote, remoteId)
         local normalFirstSize = Vector2.new(width-24-38-23, 24)
         local scrollSize = Vector2.new(width-24-38-14, 24) -- 14 = scrollbar width, plus read above
         local scrollFirstSize = Vector2.new(width-24-38-14-23, 24)
-        for i = 1, #call.Args do
+        for i = 1, call.NonNilArgCount do
             if i > Settings.ArgLimit then break end
 
             local x = call.Args[i]
@@ -2930,7 +2945,7 @@ local function makeRemoteViewerLog(call, remote, remoteId)
             lineNum.Size = Vector2.new(32, 24)
             --addSpacer(childWindow, 4)
         end
-        local argAmt = #call.Args
+        local argAmt = call.NonNilArgCount
         for i = 1, call.NilCount do
             if (i + argAmt) > Settings.ArgLimit then break end
 
@@ -3343,10 +3358,12 @@ end
 
 local function processReturnValue(callType, refTable, ...)
     deferFunc(function(...)
-        local args = shallowClone({...}, callType, true, -1)
+        local args = shallowClone({...}, callType, -1)
         if args then
+            local lastIdx = getLastIndex(args)
             refTable.Args = args
-            refTable.NilCount = (select("#", ...) - #args)
+            refTable.NonNilArgCount = lastIdx
+            refTable.NilCount = (select("#", ...) - lastIdx)
         else
             refTable.Args = false
             pushError("Impossible error has occurred, please report to GameGuy#5920")
@@ -3384,7 +3401,7 @@ local function addCall(remote, remoteId, returnValue, spyFunc, caller, cs, callS
         }
     end
     if not callLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-        local args, tableDepth, _, hasInstance = shallowClone({...}, remote.ClassName, true, -1) -- 1 deeper total
+        local args, tableDepth, _, hasInstance = shallowClone({...}, remote.ClassName, -1) -- 1 deeper total
         local argCount = select("#", ...)
 
         if not args or argCount > 7995 or (tableDepth > 0 and ((argCount + tableDepth) > 298)) then
@@ -3394,13 +3411,16 @@ local function addCall(remote, remoteId, returnValue, spyFunc, caller, cs, callS
         local V2Script = callStack[#callStack-1] and rawget(getfenv(callStack[#callStack-1].func), "script")
         if typeof(V2Script) ~= "Instance" then V2Script = nil end
 
+        local lastIdx = getLastIndex(args)
+
         local data = {
             HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
             TypeIndex = idxs[spyFunc.Name],
             Script = cs,
             Args = args, -- 2 deeper total
+            NonNilArgCount = lastIdx,
             ReturnValue = returnValue,
-            NilCount = (argCount - #args),
+            NilCount = (argCount - lastIdx),
             FromSynapse = caller,
             ScriptV2 = V2Script,
             CallStack = Settings.StoreCallStack and createCallStack(callStack)
@@ -3444,7 +3464,7 @@ local function addCallback(remote, method, func)
 
                 if not Settings.Paused then
                     local spyFunc = spyFunctions[idxs[method]]
-                    local args, _, _, hasInstance = shallowClone({...}, remoteType, true, -1)
+                    local args, _, _, hasInstance = shallowClone({...}, remoteType, -1)
                     if not args then
                         pushError("Impossible error has occurred, please report to GameGuy#5920")
                         return oldfunc(...)
@@ -3458,14 +3478,17 @@ local function addCallback(remote, method, func)
                     local scr = getcallingscript()
                     if scr then scr = cloneref(scr) end
 
+                    local lastIdx = getLastIndex(args)
+
                     local data = {
                         HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
                         TypeIndex = idxs[method],
                         CallbackScript = scr,
                         Script = callingScript[1],
                         Args = args, -- 2 deeper total
+                        NonNilArgCount = lastIdx,
                         CallbackLog = otherLogs[remoteId],
-                        NilCount = (argCount - #args),
+                        NilCount = (argCount - lastIdx),
                         FromSynapse = callingScript[2]
                     }
 
@@ -3543,12 +3566,13 @@ local function addConnection(remote, signalType, signal)
                         originalCallerCache[remoteId] = nil
                         
                         if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
-                            local args, _, _, hasInstance = shallowClone({...}, remoteType, true, -1)
+                            local args, _, _, hasInstance = shallowClone({...}, remoteType, -1)
                             if not args then
                                 pushError("Impossible error has occurred, please report to GameGuy#5920")
                                 return true, ...
                             end
                             local argCount = select("#", ...)
+                            local lastIdx = getLastIndex(args)
                             local data = {
                                 HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
                                 TypeIndex = idxs[signalType],
@@ -3557,7 +3581,8 @@ local function addConnection(remote, signalType, signal)
                                 Connections = connectionCache,
                                 Signal = signal,
                                 Args = args, -- 2 deeper total
-                                NilCount = (argCount - #args),
+                                NonNilArgCount = lastIdx,
+                                NilCount = (argCount - lastIdx),
                                 FromSynapse = callingScript[2]
                             }
 

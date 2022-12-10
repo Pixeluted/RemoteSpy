@@ -3634,7 +3634,7 @@ do -- filter setup
 end
 
 oldNewIndex = newHookMetamethod(game, "__newindex", function(remote, idx, newidx)
-    addCallback(cloneref(remote), idx, newidx)
+    spawnFunc(addCallback, cloneref(remote), idx, newidx)
 
     return oldNewIndex(remote, idx, newidx)
 end, AnyFilter.new(newIndexFilters))

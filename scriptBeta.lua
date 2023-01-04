@@ -2639,7 +2639,7 @@ local function genCallStackString(callStack)
     callStackString ..= "\nlocal CallStack = {"
 
     for i,v in callStack do
-        callStackString ..= strformat("\n\t[%s] = {\n\t\tScript = %s,\n\t\tLine = %s,\n\t\tType = %s\n\t},", tostring(i), v.Script and getInstancePath(v.Script), tostring(v.LineNumber), "\"" .. v.Type.. "\"")
+        callStackString ..= strformat("\n\t[%s] = {\n\t\tScript = %s,\n\t\tLine = %s,\n\t\tType = %s\n\t},", tostring(i), v.Script and getInstancePath(v.Script) or "\"nil\"", tostring(v.LineNumber), "\"" .. v.Type.. "\"")
     end
     
     return (sub(callStackString, 1, -2) .. "\n}")

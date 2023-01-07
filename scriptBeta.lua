@@ -3706,7 +3706,7 @@ do -- namecall and function hooks
                 local returnValue = {}
                 deferFunc(addCall, cloneref(remote), remoteId, returnValue, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
                 
-                return processReturnValue(getproperties(remote).ClassName, returnValue, oldNamecall(remote, ...)) -- getproperties(remote).ClassName is not performant at all, but using oldIndex breaks stuff
+                return processReturnValue(oldIndex(remote, "ClassName"), returnValue, oldNamecall(remote, ...)) -- getproperties(remote).ClassName is not performant at all, but using oldIndex breaks stuff
             end
             deferFunc(addCall, cloneref(remote), remoteId, nil, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
         end
@@ -3736,7 +3736,7 @@ do -- namecall and function hooks
                         local returnValue = {}
                         deferFunc(addCall, cloneref(remote), remoteId, returnValue, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
 
-                        return processReturnValue(getproperties(remote).ClassName, returnValue, oldFunc(remote, ...))
+                        return processReturnValue(oldIndex(remote, "ClassName"), returnValue, oldFunc(remote, ...))
                     end
                     deferFunc(addCall, cloneref(remote), remoteId, nil, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
                 end

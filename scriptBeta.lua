@@ -1,9 +1,17 @@
 -- CREDIT TO https://github.com/Upbolt/Hydroxide/ FOR INSPIRATION AND A FEW FORKED TOSTRING FUNCTIONS
 
--- TO DO:
-    -- Make main window remote list use popups (depends on OnRightClick)
-    -- Make arg list use right click (depends on defcon)
-    -- Currently, shallowClone sets unclonable objects to be userdatas with custom __tostring metamethods, but if the call is repeated, the userdatas get thrown away (for being in the args of the new call), making them not appear in the second call.  One solution is to somehow pass a key to the userdata that will verify it is from Synapse, another is to check the caller whenever allowing userdatas, but neither of these solutions seem perfectly clean to me.  Once a good solution is found, it will be implemented.
+--[[ TO DO:
+    * Add tuple support for return value in recieving pseudocode
+    * Make main window remote list use popups (depends on OnRightClick)
+    * Make arg list use right click (depends on defcon)
+    * Currently, shallowClone sets unclonable objects to be userdatas with custom __tostring metamethods, but if the call is repeated, the userdatas get thrown away (for being in the args of the new call), making them not appear in the second call.  One solution is to somehow pass a key to the userdata that will verify it is from Synapse, another is to check the caller whenever allowing userdatas, but neither of these solutions seem perfectly clean to me.  Once a good solution is found, it will be implemented. Best solution is likely to set one of the metamethods to a function stored in the remotespy, so that it can be compared later.  It'd be impossible for the game to get the value because of how the arg gets filtered out by roblox.
+
+    * Need to rewrite remotespy to break it down into multiple files
+        - One file for frontend, one for backend, one for pseudocode generation, one for initiation.
+            - Backend stores the data safely and calls the frontend's functions to tell it when to render.
+            - Frontend renders the calls
+            - Frontend renders buttons that call pseudcode generation functions with data from the backend.
+]]
 
 local mt = getrawmetatable(game)
 if islclosure(mt.__namecall) or islclosure(mt.__index) or islclosure(mt.__newindex) then
@@ -151,7 +159,7 @@ local DefaultTextFont = DrawFont.RegisterDefault("NotoSans_Regular", {
     PixelSize = fontSize
 })
 
-local getCallStack, getOriginalThread, getDebugId, getThreadIdentity, setThreadIdentity, getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match, pack = debug.getcallstack, syn.oth.get_original_thread, game.GetDebugId, syn.get_thread_identity, syn.set_thread_identity, table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match, table.pack
+local isHookThread, getCallStack, getOriginalThread, getDebugId, getThreadIdentity, setThreadIdentity, getn, ceil, floor, colorHSV, colorRGB, tableInsert, tableClear, tableRemove, deferFunc, spawnFunc, gsub, rep, sub, split, strformat, lower, match = syn.oth.is_hook_thread, debug.getcallstack, syn.oth.get_original_thread, game.GetDebugId, syn.get_thread_identity, syn.set_thread_identity, table.getn, math.ceil, math.floor, Color3.fromHSV, Color3.fromRGB, table.insert, table.clear, table.remove, task.defer, task.spawn, string.gsub, string.rep, string.sub, string.split, string.format, string.lower, string.match
 
 local IsDescendantOf = game.IsDescendantOf
 
@@ -250,7 +258,7 @@ local colorOptions = {
     HeaderActive = {colorRGB(75, 75, 75), 1},
 }
 
-local function resizeText(original, newWidth, proceedingChars, font)  -- my fix using this and purifyString is pretty garbage as it brute forces the string size, but before that it makes a really rough guess on the maximum length of the string, allowing for general optimization for speed, but it isn't perfect.  The current system is **enough**, taking approx 370 microseconds, but could be improved greatly.  Fundamentally, this fix is also flawed because of how hard coded it is, and how unnecessarily it passes args through getArgString.
+local function resizeText(original: string, newWidth: number, proceedingChars: string, font: RenderFont)  -- my fix using this and purifyString is pretty garbage as it brute forces the string size, but before that it makes a really rough guess on the maximum length of the string, allowing for general optimization for speed, but it isn't perfect.  The current system is **enough**, taking approx 370 microseconds, but could be improved greatly.  Fundamentally, this fix is also flawed because of how hard coded it is, and how unnecessarily it passes args through getArgString.
     if type(original) ~= "string" then warn("non string text passed to resizeText"); return original end
 
     local charSize = font:GetTextBounds(fontSize, original).X
@@ -307,7 +315,7 @@ local function resizeText(original, newWidth, proceedingChars, font)  -- my fix 
     end
 end
 
-local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
+local function newHookMetamethod(toHook, mtmethod: string, hookFunction, filter: FilterBase)
     local oldFunction
 
     local func = getfilter(filter, function(...) 
@@ -319,7 +327,7 @@ local function newHookMetamethod(toHook, mtmethod, hookFunction, filter)
     return oldFunction
 end
 
-local function filteredOth(toHook, hookFunction, filter)
+local function filteredOth(toHook, hookFunction, filter: FilterBase)
     local oldFunction
 
     local func = getfilter(filter, function(...) 
@@ -349,7 +357,7 @@ local function pushSuccess(message: string)
     })
 end
 
-local function outputData(source, destination, destinationTitle, successMessage)
+local function outputData(source: string, destination: number, destinationTitle: string, successMessage: string)
     if destination == 1 then
         setclipboard(source)
         pushSuccess(successMessage .. " to Clipboard")
@@ -442,7 +450,7 @@ local bindableUserdataClone = {
         return DateTime.fromUnixTimestamp(original.UnixTimestamp)
     end,
     DockWidgetPluginGuiInfo = function(original: DockWidgetPluginGuiInfo): DockWidgetPluginGuiInfo
-        local arguments: table = split(tostring(original), " ")
+        local arguments = split(tostring(original), " ")
         local dockState: string = sub(arguments[1], 18, -1)
         local initialEnabled: boolean = tonumber(sub(arguments[2], 16, -1)) ~= 0
         local initialShouldOverride: boolean = tonumber(sub(arguments[3], 38, -1)) ~= 0
@@ -514,7 +522,7 @@ local bindableUserdataClone = {
         clone.CollisionGroup = original.CollisionGroup
         clone.FilterDescendantsInstances = original.FilterDescendantsInstances
         clone.FilterType = original.FilterType
-        clone.MaxPart = original.MaxParts
+        clone.MaxParts = original.MaxParts
 
         return clone]]
         return false -- doesn't get sent
@@ -663,7 +671,7 @@ local remoteUserdataClone = {
         return DateTime.fromUnixTimestamp(original.UnixTimestamp)
     end,
     DockWidgetPluginGuiInfo = function(original: DockWidgetPluginGuiInfo): DockWidgetPluginGuiInfo
-        --[[local arguments: table = split(tostring(original), " ")
+        --[[local arguments = split(tostring(original), " ")
         local dockState: string = sub(arguments[1], 18, -1)
         local initialEnabled: boolean = tonumber(sub(arguments[2], 16, -1)) ~= 0
         local initialShouldOverride: boolean = tonumber(sub(arguments[3], 38, -1)) ~= 0
@@ -737,7 +745,7 @@ local remoteUserdataClone = {
         clone.CollisionGroup = original.CollisionGroup
         clone.FilterDescendantsInstances = original.FilterDescendantsInstances
         clone.FilterType = original.FilterType
-        clone.MaxPart = original.MaxParts
+        clone.MaxParts = original.MaxParts
 
         return clone]]
         return false -- doesn't get sent
@@ -885,17 +893,19 @@ local function createIndex(index: any) -- from my testing, calltype doesn't affe
     end
 end
 
--- this function should only be used on shallowClone({...}), and only on the first table, where we can be sure that it should be all number indices and all in order, this is unsafe to use on any other tables.
-local function getLastIndex(tbl: table): number
+-- this function should only be used on shallowClone({...}), and only on the first table, where we can be sure that it should be all number indices, this is unsafe to use on any other tables.  The first table from shallowClone may not be in order (due to nils being weird), so we need a comparison of indices.
+local function getLastIndex(tbl): number
     local final: number = 0
     for i in tbl do
-        final = i
+        if i > final then
+            final = i
+        end
     end
 
     return final
 end
 
-local function shallowClone(myTable: table, callType: string, stack: number?) -- cyclic check built in
+local function shallowClone(myTable, callType: string, stack: number?) -- cyclic check built in
     stack = stack or 0 -- you can offset stack by setting the starting parameter to a number
     local newTable = {}
     local hasTable = false
@@ -903,13 +913,13 @@ local function shallowClone(myTable: table, callType: string, stack: number?) --
     local started = false
     local originalDepth = stack
     local consecutiveIndices = getn(myTable)
-    local isConsecutive = (consecutiveIndices ~= 0)
+    local isConsecutive = (consecutiveIndices ~= 0) and (stack ~= -1) -- consecutives don't count when it's the original data (nils break stuff)
 
     if stack == 300 then -- this stack overflow check doesn't really matter as a stack overflow check, it's just here to make sure there are no cyclic tables.  While I could just check for cyclics directly, this is faster.
         return false, stack
     end
     for i,v in next, myTable do
-        if not isConsecutive or type(i) == "number" and i <= consecutiveIndices then
+        if not isConsecutive or (type(i) == "number" and i <= consecutiveIndices) then
             if not started then started = true; stack += 1 end
             local index, value = createIndex(i), nil
             if index then
@@ -960,62 +970,41 @@ local function addSpacer(window, amt: number)
 end
 
 local asciiFilteredCharacters = {
-    -- before 0x20 is control characters
-    [" "] = "\\x20",
-    ["!"] = "\\x21",
-    ["\\\""] = "\\x22",
-    ["#"] = "\\x23",
-    ["$"] = "\\x24",
-    ["%%"] = "\\x25",
-    ["&"] = "\\x26",
-    ["\\\'"] = "\\x27",
-    ["("] = "\\x28",
-    [")"] = "\\x29",
-    ["*"] = "\\x2A",
-    ["+"] = "\\x2B",
-    [","] = "\\x2C",
-    ["-"] = "\\x2D",
-    ["."] = "\\x2E",
-    ["/"] = "\\x2F",
-    -- 0x30 ~ 0x39 is nums
-    [":"] = "\\x3A",
-    [";"] = "\\x3B",
-    ["<"] = "\\x3C",
-    ["="] = "\\x3D",
-    [">"] = "\\x3E",
-    ["?"] = "\\x3F",
-    ["@"] = "\\x40",
-    -- 0x41 ~ 0x5A is uppercase alphas
-    ["["] = "\\x5B",
-    ["\\\\"] = "\\x5C",
-    ["]"] = "\\x5D",
-    ["^"] = "\\x5E",
-    ["_"] = "\\x5F",
-    ["`"] = "\\x60",
-    -- 0x61 ~ 0x7A  is lowercase alphas
-    ["{"] = "\\x7B",
-    ["|"] = "\\x7C",
-    ["}"] = "\\x7D",
-    ["~"] = "\\x7E"
+    ["\""] = "\\\"",
+    ["\\"] = "\\\\",
+    ["\a"] = "\\a",
+    ["\b"] = "\\b",
+    ["\t"] = "\\t",
+    ["\n"] = "\\n",
+    ["\v"] = "\\v",
+    ["\f"] = "\\f",
+    ["\r"] = "\\r"
 }
 
-local synEncode = syn.crypt.url.encode
+for Index = 0, 255 do
+    if (Index < 32 or Index > 126) then -- only non printable ascii characters
+        local character = string.char(Index)
+        if not asciiFilteredCharacters[character] then
+            asciiFilteredCharacters[character] = "\\" .. Index
+        end
+    end
+end
 
-local function purifyString(str: string, quotes: boolean, maxLength: number) -- my fix using this and resizeText is pretty garbage as it brute forces the string size, but before that it makes a really rough guess on the maximum length of the string, allowing for general optimization for speed, but it isn't perfect.  The current system is **enough**, taking approx 370 microseconds, but could be improved greatly.  Fundamentally, this fix is also flawed because of how hard coded it is, and how unnecessarily it passes args through getArgString.
+local function purifyString(str: string, quotes: boolean, maxLength: number)
     if type(maxLength) == "number" then
         str = sub(str, 1, maxLength)
     end
-    str = gsub(synEncode(str), "%%", "\\x")
+    str = gsub(str, "[\"\\\0-\31\127-\255]", asciiFilteredCharacters)
     if type(maxLength) == "number" then
         str = sub(str, 1, maxLength)
     end
-
-    for i,v in asciiFilteredCharacters do
-        str = gsub(str, v, i)
-    end
-
+    --[[
+        This gsub can be broken down into multiple steps.
+        It filters quotations (\") and backslashes "\\" to be replaced,
+        Then it filters characters 0-31, and 127-255, replacing them all with their escape sequences
+    ]]
     if quotes then
-        return '"' .. str .. '"'
+        return "\"" .. str .. "\""
     else
         return str
     end
@@ -1023,29 +1012,32 @@ end
 
 local gameId, workspaceId = getDebugId(game), getDebugId(workspace)
 
-local function instanceParentedToNil(instance)
-    local instanceId = instance:GetDebugId()
+local function instanceParentedToNil(instance: Instance) -- too cursed to use (insanely slow in certain games)
+    local instanceId = getDebugId(instance)
     for _,v in getnilinstances() do
-        if v:GetDebugId() == instanceId then
+        if getDebugId(v) == instanceId then
             return true
         end
     end
 end
 
-local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
-    if not instance then return "NIL INSTANCE" end
+local function getInstancePath(instance: Instance) -- FORKED FROM HYDROXIDE
+    if not instance then return "NIL INSTANCE" end -- probably is impossible, cant be bothered to confirm
+    local s = tick()
+    setThreadIdentity(8)
+    local id = getDebugId(instance)
+
     local name = instance.Name
     local head = (#name > 0 and '.' .. name) or "['']"
     
-    if not instance.Parent and instance ~= game then
-        if not instanceParentedToNil(instance) then
-            return "(nil)" .. head .. " --[[ INSTANCE DELETED FROM GAME ]]", false
-        else
-            return "(nil)" .. head .. " --[[ PARENTED TO NIL ]]", false
-        end
+    if not instance.Parent and id ~= gameId then
+        return "(nil)" .. head .. " --[[ INSTANCE DELTED/PARENTED TO NIL ]]", false
+        --if not instanceParentedToNil(instance) then
+            --return "(nil)" .. head .. " --[[ INSTANCE DELETED FROM GAME ]]", false
+        --else
+            --return "(nil)" .. head .. " --[[ PARENTED TO NIL ]]", false
+        --end
     end
-    setThreadIdentity(8)
-    local id = getDebugId(instance)
     
     if id == gameId then
         return "game", true, true
@@ -1065,7 +1057,7 @@ local function getInstancePath(instance) -- FORKED FROM HYDROXIDE
             end
         end
         local _success, result = pcall(game.GetService, game, instance.ClassName)
-        
+
         if _success and result then
             return 'game:GetService("' .. instance.ClassName .. '")', true, true
         elseif id == clientid then -- cloneref moment
@@ -1122,17 +1114,7 @@ local makeUserdataConstructor = {
         return "BrickColor.new(\"" .. original.Name .. "\")"
     end,
     CatalogSearchParams = function(original: CatalogSearchParams): string
-        return "nil --[[ CatalogSearchParams is Unsupported ]]"
-        --[[local clone: CatalogSearchParams = CatalogSearchParams.new()
-        clone.AssetTypes = original.AssetTypes
-        clone.BundleTypes = original.BundleTypes
-        clone.CategoryFilter = original.CategoryFilter
-        clone.MaxPrice = original.MaxPrice
-        clone.MinPrice = original.MinPrice
-        clone.SearchKeyword = original.SearchKeyword
-        clone.SortType = original.SortType
-
-        return clone]]
+        return strformat("(function() local clone: CatalogSearchParams = CatalogSearchParams.new(); clone.AssetTypes = %s; clone.BundleTimes = %s; clone.CategoryFilter = %s; clone.MaxPrice = %s; clone.MinPrice = %s; clone.SearchKeyword = %s; clone.SortType = %s; return clone end)()", tostring(original.AssetTypes), tostring(original.BundleTypes), tostring(original.CategoryFilter), original.MaxPrice, original.MinPrice, original.SearchKeyword, tostring(original.SortType))
     end,
     CFrame = function(original: CFrame): string
         return "CFrame.new(" .. tostring(original) .. ")"
@@ -1150,7 +1132,7 @@ local makeUserdataConstructor = {
         return "DateTime.fromUnixTimestamp(" .. tostring(original.UnixTimestamp) .. ")"
     end,
     DockWidgetPluginGuiInfo = function(original: DockWidgetPluginGuiInfo): string
-        local arguments: table = split(tostring(original), " ")
+        local arguments = split(tostring(original), " ")
         local dockState: string = sub(arguments[1], 18, -1)
         local initialEnabled: boolean = tonumber(sub(arguments[2], 16, -1)) ~= 0
         local initialShouldOverride: boolean = tonumber(sub(arguments[3], 38, -1)) ~= 0
@@ -1160,7 +1142,7 @@ local makeUserdataConstructor = {
         local minHeight: number = tonumber(sub(arguments[7], 11, -1))
         -- can't read the properties so i have to tostring first :(
             
-        return "DockWidgetPluginGuiInfo.new(Enum.InitialDockState." .. dockState .. ", " .. tostring(initialEnabled) .. ", " .. tostring(initialShouldOverride) .. ", " ..  tostring(floatX) .. ", " ..  tostring(floatY) .. ", " ..  tostring(minWidth) .. ", " ..  tostring(minHeight) .. ")"
+        return strformat("DockWidgetPluginGuiInfo.new(%s, %s, %s, %s, %s, %s, %s)", "Enum.InitialDockState." .. dockState, tostring(initialEnabled), tostring(initialShouldOverride), tostring(floatX), tostring(floatY), tostring(minWidth), tostring(minHeight))
     end,
     Enum = function(original: Enum): string
         return "Enum." .. tostring(original)
@@ -1198,11 +1180,7 @@ local makeUserdataConstructor = {
         return "FloatCurveKey.new(" .. tostring(original.Time) .. ", " .. tostring(original.Value) .. ", "  .. tostring(original.Interpolation) .. ")"
     end,
     Font = function(original: Font): string
-        return "nil --[[ Font is Unsupported ]]"
-        --[[local clone: Font = Font.new(original.Family, original.Weight, original.Style)
-        clone.Bold = original.Bold
-
-        return clone]]
+        return strformat("(function() local clone: Font = Font.new(%s, %s, %s); clone.Bold = %s; return clone end)()", '"' .. original.Family .. '"', tostring(original.Weight), tostring(original.Style), tostring(original.Bold))
     end,
     Instance = function(original: Instance): string
         return getInstancePath(original)
@@ -1217,14 +1195,7 @@ local makeUserdataConstructor = {
         return "NumberSequenceKeypoint.new(" .. tostring(original.Time) .. ", " .. tostring(original.Value) .. ", " .. tostring(original.Envelope) .. ")"
     end,
     OverlapParams = function(original: OverlapParams): OverlapParams
-        return "nil --[[ OverlapParams is Unsupported ]]"
-        --[[local clone: OverlapParams = OverlapParams.new()
-        clone.CollisionGroup = original.CollisionGroup
-        clone.FilterDescendantsInstances = original.FilterDescendantsInstances
-        clone.FilterType = original.FilterType
-        clone.MaxPart = original.MaxParts
-
-        return clone]]
+        return strformat("(function(): OverlapParams local clone: OverlapParams = OverlapParams.new(); clone.CollisionGroup = %s; clone.FilterDescendantInstances = %s; clone.FilterType = %s; clone.MaxParts = %s; return clone end)()", original.CollisionGroup, tableToString(original.FilterDescendantsInstances, false, Settings.InstanceTrackerMode), tostring(original.FilterType), tostring(original.MaxParts))
     end,
     PathWaypoint = function(original: PathWaypoint): string
         return "PathWaypoint.new(Vector3.new(" .. tostring(original.Position) .. "), " .. tostring(original.Action) .. ")"
@@ -1239,25 +1210,10 @@ local makeUserdataConstructor = {
         return "Ray.new(Vector3.new(" .. tostring(original.Origin) .. "), Vector3.new(" .. tostring(original.Direction) .. "))"
     end,
     RaycastParams = function(original: RaycastParams): string
-        return "nil --[[ RaycastParams is Unsupported ]]"
-        --[[local clone: RaycastParams = RaycastParams.new()
-        clone.CollisionGroup = original.CollisionGroup
-        clone.FilterDescendantsInstances = original.FilterDescendantsInstances
-        clone.FilterType = original.FilterType
-        clone.IgnoreWater = original.IgnoreWater
-
-        return clone]]
+        return strformat("(function(): RaycastParams local clone: RaycastParams = RaycastParams.new(); clone.CollisionGroup = %s; clone.FilterDescendantsInstances = %s; clone.FilterType = %s; clone.FilterWater = %s; return clone end)()", original.CollisionGroup, tableToString(original.FilterDescendantsInstances, false, Settings.InstanceTrackerMode), tostring(original.FilterType), tostring(original.IgnoreWater))
     end,
     RaycastResult = function(original: RaycastResult): string
-        return "nil --[[ RaycastResult is Unsupported ]]"
-        --[[local params: RaycastParams = RaycastParams.new()
-        params.IgnoreWater = original.Material.Name ~= "Water"
-        params.FilterType = Enum.RaycastFilterType.Whitelist
-        params.FilterDescendantsInstances = { original.Instance }
-
-	    local startPos: Vector3 = original.Position+(original.Distance*original.Normal)
-
-        return workspace:Raycast(startPos, CFrame.lookAt(startPos, original.Position).LookVector*math.ceil(original.Distance), params)]]
+        return strformat("(function(): RaycastParams local params: RaycastParams = RaycastParams.new(); params.IgnoreWater = %s; params.FilterType = %s; params.FilterDescendantsInstances = %s; local startPos: Vector3 = %s; return workspace:Raycast(startPos, CFrame.lookAt(startPos, %s).LookVector*math.ceil(%s), params) end)()", tostring(original.Material.Name ~= "Water"), tostring(Enum.RaycastFilterType.Whitelist), tableToString(original.Instance, false, Settings.InstanceTrackerMode), "Vector3.new(" .. original.Position+(original.Distance*original.Normal) .. ")", "Vector3.new(" .. original.Position .. ")", "Vector3.new(" .. original.Distance .. ")")
     end,
     RBXScriptConnection = function(original: RBXScriptConnection): string
         return "nil --[[ RBXScriptConnection is Unsupported ]]"
@@ -1318,7 +1274,7 @@ end
 
 -- localized elsewhere
 
-tableToString = function(data, format, debugMode, root, indents) -- FORKED FROM HYDROXIDE
+tableToString = function(data: any, format: boolean, debugMode: boolean, root: any, indents: number) -- FORKED FROM HYDROXIDE
     local dataType = type(data)
 
     format = format == nil and true or format
@@ -1443,7 +1399,7 @@ local types = {
     end }
 }
 
-local function getArgString(arg, maxLength)
+local function getArgString(arg: any, maxLength: number)
     local t = type(arg)
 
     if types[t] and t ~= "userdata" then
@@ -1585,7 +1541,7 @@ local function repeatStringWithIndex(prefix: string, suffix: string, count: numb
     return retVal
 end
 
-local function genSendPseudo(rem, call, spyFunc)
+local function genSendPseudo(rem: Instance, call, spyFunc)
     local watermark = Settings.PseudocodeWatermark and watermarkString or ""
 
     local debugMode = Settings.InstanceTrackerMode
@@ -1601,7 +1557,7 @@ local function genSendPseudo(rem, call, spyFunc)
 
     if call.NonNilArgCount == 0 and call.NilCount == 0 then
         if spyFunc.Type == "Call" then
-            return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n\n" .. (spyFunc.ReturnsValue and ("local "..sub(repeatStringWithIndex("returnValue", ", ", #call.ReturnValue.Args), 1, -3).." = ") or "") .. "remote:") or (remPath .. ":")) .. spyFunc.Method .."()"
+            return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n\n" .. (spyFunc.ReturnsValue and ("local returnValue = ") or "") .. "remote:") or (remPath .. ":")) .. spyFunc.Method .."()"
         elseif spyFunc.Type == "Connection" then
             return watermark .. (Settings.PseudocodeInlineRemote and ("local remote" .. (Settings.PseudocodeLuaUTypes and (": " .. spyFunc.Object) or "").." = " .. remPath .. "\n\nfiresignal(remote.") or ("firesignal(" .. remPath ".")) .. spyFunc.Connection ..")"
         elseif spyFunc.Type == "Callback" then
@@ -1630,7 +1586,7 @@ local function genSendPseudo(rem, call, spyFunc)
             end
             
             local varPrefix = ""
-            if primTyp ~= "function" and Settings.PseudocodeLuaUTypes then
+            if primTyp ~= "function" and primTyp ~= "table" and Settings.PseudocodeLuaUTypes then
                 varPrefix = "local " .. varName .. ": ".. tempTyp .." = "
             else
                 varPrefix = "local " .. varName .." = "
@@ -1888,7 +1844,7 @@ local function genReturnValuePseudo(returnTable, spyFunc)
     end
 end
 
-local function genRecvPseudo(rem, call, spyFunc, watermark)
+local function genRecvPseudo(rem: Instance, call, spyFunc, watermark: string)
     local watermark = watermark and watermarkString or ""
 
     local debugMode = Settings.InstanceTrackerMode
@@ -2102,7 +2058,7 @@ do  -- general Settings
     end)
 
     local checkBox4 = generalTab:CheckBox()
-    checkBox4.Label = "Cache Unselected Remotes' Calls"
+    checkBox4.Label = "Cache Unselected Types' Calls"
     checkBox4.Value = Settings.LogHiddenRemotesCalls
     checkBox4.OnUpdated:Connect(function(value)
         Settings.LogHiddenRemotesCalls = value
@@ -2286,7 +2242,7 @@ do -- output settings
 end -- theme settings
 
 do -- credits
-    creditsTab:Label("Written primarily by GameGuy")
+    creditsTab:Label("Written by GameGuy")
     creditsTab:Label("With Inspriation from Hydroxide")
     creditsTab:Separator()
 
@@ -2495,7 +2451,7 @@ do -- arg frame code
     remoteViewerMainWindow:SetStyle(RenderStyleOption.ItemSpacing, Vector2.new(0, 0))
 end
 
-local function createCSButton(window, call, spyFunc)
+local function createCSButton(window: RenderWindow, call, spyFunc)
     local frame = window:Dummy()
     if spyFunc.HasNoCaller or call.FromSynapse then
         frame:SetColor(RenderColorOption.Text, grey, 1)
@@ -2517,7 +2473,7 @@ local function createCSButton(window, call, spyFunc)
     end
 end
 
-local function createCSDecompileButton(window, call, spyFunc)
+local function createCSDecompileButton(window: RenderWindow, call, spyFunc)
     local frame = window:Dummy()
     if spyFunc.HasNoCaller or call.FromSynapse then
         frame:SetColor(RenderColorOption.Text, grey, 1)
@@ -2545,7 +2501,7 @@ local function createCSDecompileButton(window, call, spyFunc)
     end
 end
 
-local function repeatCall(call, remote, remoteId, spyFunc, repeatCount)
+local function repeatCall(call, remote: Instance, remoteId: string, spyFunc, repeatCount: number)
     if spyFunc.Type == "Call" then
         local func = spyFunc.Function
         
@@ -2586,7 +2542,7 @@ local function repeatCall(call, remote, remoteId, spyFunc, repeatCount)
     end
 end
 
-local function createRepeatCallButton(window, call, remote, remoteId, spyFunc, amt) -- NEEDS TO BE REDONE FOR CONS AND CALLBACKS
+local function createRepeatCallButton(window: RenderWindow, call, remote: Instance, remoteId, spyFunc, amt) -- NEEDS TO BE REDONE FOR CONS AND CALLBACKS
     local button = window:Selectable()
     button.Label = amt and ("Repeat Call x" .. tostring(amt)) or "Repeat Call"
     button.Visible = true
@@ -2596,7 +2552,7 @@ local function createRepeatCallButton(window, call, remote, remoteId, spyFunc, a
     button.OnUpdated:Connect(function() repeatCall(call, remote, remoteId, spyFunc, amt) end)
 end
 
-local function createGenSendPCButton(window, call, remote, spyFunc)
+local function createGenSendPCButton(window: RenderWindow, call, remote: Instance, spyFunc)
     local button = window:Selectable()
     button.Label = "Generate Calling Pseudocode"
     button.OnUpdated:Connect(function()
@@ -2609,7 +2565,7 @@ local function createGenSendPCButton(window, call, remote, spyFunc)
     end)
 end
 
-local function createGenRecvPCButton(window, call, remote, spyFunc)
+local function createGenRecvPCButton(window: RenderWindow, call, remote: Instance, spyFunc)
     local frame = window:Dummy()
     if spyFunc.Type == "Call" then
         frame:SetColor(RenderColorOption.Text, grey, 1)
@@ -2645,7 +2601,7 @@ local function genCallStackString(callStack)
     return (sub(callStackString, 1, -2) .. "\n}")
 end
 
-local function createGetCallStackButton(window, call, spyFunc)
+local function createGetCallStackButton(window: RenderWindow, call, spyFunc)
     local frame = window:Dummy()
     if spyFunc.Type ~= "Call" or call.FromSynapse then
         frame:SetColor(RenderColorOption.Text, grey, 1)
@@ -2666,7 +2622,7 @@ local function createGetCallStackButton(window, call, spyFunc)
     end
 end
 
-local function createGetConnectionScriptsButton(window, call, spyFunc)
+local function createGetConnectionScriptsButton(window: RenderWindow, call, spyFunc)
     local frame = window:Dummy()
     if spyFunc.Type ~= "Connection" then
         frame:SetColor(RenderColorOption.Text, grey, 1)
@@ -2696,7 +2652,7 @@ local function createGetConnectionScriptsButton(window, call, spyFunc)
     end
 end
 
-local function createGetRetValButton(window, call, spyFunc)
+local function createGetRetValButton(window: RenderWindow, call, spyFunc)
     local frame = window:Dummy()
     if not spyFunc.ReturnsValue then
         frame:SetColor(RenderColorOption.Text, grey, 1)
@@ -2712,7 +2668,7 @@ local function createGetRetValButton(window, call, spyFunc)
                 if ret.Args then
                     outputData(genReturnValuePseudo(ret, spyFunc), Settings.PseudocodeOutput, "RS Return Value", "Generated Return Value")
                 else
-                    pushError("Failed to Get Return Value")
+                    pushError("Failed to Get Return Value (may have never returned)")
                 end
             end)
             if not suc then
@@ -2722,7 +2678,7 @@ local function createGetRetValButton(window, call, spyFunc)
     end
 end
 
-local function createCBButton(window, call, spyFunc)
+local function createCBButton(window: RenderWindow, call, spyFunc)
     local frame = window:Dummy()
     if spyFunc.Type ~= "Callback" or call.FromSynapse then
         frame:SetColor(RenderColorOption.Text, grey, 1)
@@ -2743,7 +2699,7 @@ local function createCBButton(window, call, spyFunc)
     end
 end
 
-local function createCBDecompileButton(window, call, spyFunc)
+local function createCBDecompileButton(window: RenderWindow, call, spyFunc)
     local frame = window:Dummy()
     if spyFunc.Type ~= "Callback" or call.FromSynapse then
         frame:SetColor(RenderColorOption.Text, grey, 1)
@@ -2770,7 +2726,7 @@ local function createCBDecompileButton(window, call, spyFunc)
     end
 end
 
-local function makeRemoteViewerLog(call, remote, remoteId)
+local function makeRemoteViewerLog(call: Instance, remote: Instance, remoteId: string)
     local totalArgCount = call.NonNilArgCount + call.NilCount
     local spyFunc = spyFunctions[call.TypeIndex]
     local tempMainDummy = remoteViewerMainWindow:Dummy()
@@ -3001,7 +2957,7 @@ local function makeRemoteViewerLog(call, remote, remoteId)
     tableInsert(argLines, { tempMainDummy, pop })
 end
 
-local function loadRemote(remote, remoteId, data)
+local function loadRemote(remote: Instance, remoteId: string, data)
     local funcInfo = spyFunctions[data.TypeIndex]
     local logs = funcInfo.Type == "Call" and callLogs or otherLogs
     frontPage.Visible = false
@@ -3131,7 +3087,7 @@ childWindow:SetStyle(RenderStyleOption.ItemSpacing, Vector2.new(4, 0))
 childWindow:SetStyle(RenderStyleOption.FrameRounding, 3)
 addSpacer(childWindow, 8)
 
-local function makeCopyPathButton(sameLine, remote)
+local function makeCopyPathButton(sameLine: RenderSameLine, remote: Instance)
     local copyPathButton = sameLine:Button()
     copyPathButton.Label = "Copy Path"
 
@@ -3145,7 +3101,7 @@ local function makeCopyPathButton(sameLine, remote)
     end)
 end
 
-local function makeClearLogsButton(sameLine, remoteId, method)
+local function makeClearLogsButton(sameLine: RenderSameLine, remoteId: string, method)
     local clearLogsButton = sameLine:Button()
     clearLogsButton.Label = "Clear Logs"
 
@@ -3162,7 +3118,7 @@ local function makeClearLogsButton(sameLine, remoteId, method)
     end)
 end
 
-local function makeIgnoreButton(sameLine, remoteId, method)
+local function makeIgnoreButton(sameLine: RenderSameLine, remoteId: string, method)
     local spoofLine = sameLine:SameLine()
     spoofLine:SetColor(RenderColorOption.Text, red, 1)
     local ignoreButton = spoofLine:Button()
@@ -3194,7 +3150,7 @@ local function makeIgnoreButton(sameLine, remoteId, method)
     end)
 end
 
-local function makeBlockButton(sameLine, remoteId, method)
+local function makeBlockButton(sameLine: RenderSameLine, remoteId: string, method)
     local spoofLine = sameLine:SameLine()
     spoofLine:SetColor(RenderColorOption.Text, red, 1)
     local blockButton = spoofLine:Button()
@@ -3226,7 +3182,7 @@ local function makeBlockButton(sameLine, remoteId, method)
     end)
 end
 
-local function renderNewLog(remote, remoteId, data)
+local function renderNewLog(remote: Instance, remoteId: string, data)
     local spyFunc = spyFunctions[data.TypeIndex]
     local method = spyFunc.Type
     local lines, log, funcList
@@ -3304,7 +3260,7 @@ _G.ChangeRemoteSpyRemoteDisplayName = function(remote: Instance, newName: string
     end
 end
 
-local function sendLog(remote, remoteId, data)
+local function sendLog(remote: Instance, remoteId: string, data)
     local spyFunc = spyFunctions[data.TypeIndex]
     local method = spyFunc.Type
     local check = (currentSelectedRemote == remoteId and currentSelectedType == method) and true
@@ -3352,7 +3308,7 @@ local function sendLog(remote, remoteId, data)
     end
 end
 
-local function processReturnValue(callType, refTable, ...)
+local function processReturnValue(callType: string, refTable, ...)
     deferFunc(function(...)
         local args = shallowClone({...}, callType, -1)
         if args then
@@ -3388,7 +3344,7 @@ local function createCallStack(callStack)
     return newCallStack
 end
 
-local function addCall(remote, remoteId, returnValue, spyFunc, caller, cs, callStack, ...)
+local function addCall(remote: Instance, remoteId: string, returnValue, spyFunc, caller: boolean, cs: Instance, callStack, ...)
     if not callLogs[remoteId] then
         callLogs[remoteId] = {
             Blocked = false,
@@ -3425,11 +3381,11 @@ local function addCall(remote, remoteId, returnValue, spyFunc, caller, cs, callS
     end
 end
 
-local function addCallback(remote, method, func)
+local function addCallback(remote: Instance, method: string, func)
     local oldIdentity = getThreadIdentity()
     setThreadIdentity(8)
     local remoteId = getDebugId(remote)
-    local remoteType = remote.ClassName
+    local remoteType = remote.ClassName--isHookThread() and oldIndex(remote, "ClassName") or remote.ClassName
 
     if not otherLogs[remoteId] then
         otherLogs[remoteId] = {
@@ -3520,11 +3476,11 @@ local function addCallback(remote, method, func)
     setThreadIdentity(oldIdentity)
 end
 
-local function addConnection(remote, signalType, signal)
+local function addConnection(remote: Instance, signalType: string, signal: RBXScriptSignal)
     local oldIdentity = getThreadIdentity()
     setThreadIdentity(8)
     local remoteId = getDebugId(remote)
-    local remoteType = oldIndex(remote, "ClassName")
+    local remoteType = remote.ClassName--isHookThread() and oldIndex(remote, "ClassName") or remote.ClassName
 
     if not otherLogs[remoteId] then
         otherLogs[remoteId] = {
@@ -3632,9 +3588,9 @@ do -- filter setup
         end
     end
 end
-
+-- need to pass an arg telling addCallback/addConnection that the call came from a hook thread, which will use oldIndex, as opposed to being called from the getweakdescendants iteration, where oldIndex will throw an error
 oldNewIndex = newHookMetamethod(game, "__newindex", function(remote, idx, newidx)
-    spawnFunc(addCallback, cloneref(remote), idx, newidx)
+    deferFunc(addCallback, cloneref(remote), idx, newidx)
 
     return oldNewIndex(remote, idx, newidx)
 end, AnyFilter.new(newIndexFilters))
@@ -3642,7 +3598,7 @@ _G.remoteSpyHooks.NewIndex = oldNewIndex
 
 oldIndex = newHookMetamethod(game, "__index", function(remote, idx)
     local newSignal = oldIndex(remote, idx)
-    addConnection(cloneref(remote), idx, newSignal)
+    deferFunc(addConnection, cloneref(remote), idx, newSignal)
 
     return newSignal
 end, AnyFilter.new(indexFilters))
@@ -3705,8 +3661,8 @@ do -- namecall and function hooks
             if spyFunc.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then
                 local returnValue = {}
                 deferFunc(addCall, cloneref(remote), remoteId, returnValue, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
-                
-                return processReturnValue(getproperties(remote).ClassName, returnValue, oldNamecall(remote, ...)) -- getproperties(remote).ClassName is not performant at all, but using oldIndex breaks stuff
+
+                return processReturnValue(spyFunc.Object, returnValue, oldNamecall(remote, ...)) -- getproperties(remote).ClassName is not performant at all, but using oldIndex breaks stuff
             end
             deferFunc(addCall, cloneref(remote), remoteId, nil, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
         end
@@ -3736,7 +3692,7 @@ do -- namecall and function hooks
                         local returnValue = {}
                         deferFunc(addCall, cloneref(remote), remoteId, returnValue, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
 
-                        return processReturnValue(getproperties(remote).ClassName, returnValue, oldFunc(remote, ...))
+                        return processReturnValue(v.Object, returnValue, oldFunc(remote, ...))
                     end
                     deferFunc(addCall, cloneref(remote), remoteId, nil, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
                 end

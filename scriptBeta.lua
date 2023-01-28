@@ -4,7 +4,7 @@
     * Add tuple support for return value in recieving pseudocode
     * Make main window remote list use popups (depends on OnRightClick)
     * Make arg list use right click (depends on defcon)
-    * Currently, shallowClone sets unclonable objects to be userdatas with custom __tostring metamethods, but if the call is repeated, the userdatas get thrown away (for being in the args of the new call), making them not appear in the second call.  One solution is to somehow pass a key to the userdata that will verify it is from Synapse, another is to check the caller whenever allowing userdatas, but neither of these solutions seem perfectly clean to me.  Once a good solution is found, it will be implemented. Best solution is likely to set one of the metamethods to a function stored in the remotespy, so that it can be compared later.  It'd be impossible for the game to get the value because of how the arg gets filtered out by roblox.
+    * Currently, deepClone sets unclonable objects to be userdatas with custom __tostring metamethods, but if the call is repeated, the userdatas get thrown away (for being in the args of the new call), making them not appear in the second call.  One solution is to somehow pass a key to the userdata that will verify it is from Synapse, another is to check the caller whenever allowing userdatas, but neither of these solutions seem perfectly clean to me.  Once a good solution is found, it will be implemented. Best solution is likely to set one of the metamethods to a function stored in the remotespy, so that it can be compared later.  It'd be impossible for the game to get the value because of how the arg gets filtered out by roblox.
 
     * Need to rewrite remotespy to break it down into multiple files
         - One file for frontend, one for backend, one for pseudocode generation, one for initiation.
@@ -860,11 +860,9 @@ local function cloneUserdata(userdata: any, remoteType: string): any
     end
 end
 
-local function getSpecialKey(userdata: any): string
-    if type(userdata) == "userdata" then
-        local prefix = specialTypes[typeof(userdata)] or typeof(userdata)
-        return "<" .. prefix .. ">" .. " (" .. tostring(userdata) .. ")"
-    end
+local function getSpecialKey(index: any): string
+    local prefix = specialTypes[typeof(index)] or typeof(index)
+    return "<" .. prefix .. ">" .. " (" .. tostring(index) .. ")"
 end
 
 local function cloneData(data: any, callType: string)
@@ -893,7 +891,7 @@ local function createIndex(index: any) -- from my testing, calltype doesn't affe
     end
 end
 
--- this function should only be used on shallowClone({...}), and only on the first table, where we can be sure that it should be all number indices, this is unsafe to use on any other tables.  The first table from shallowClone may not be in order (due to nils being weird), so we need a comparison of indices.
+-- this function should only be used on deepClone({...}), and only on the first table, where we can be sure that it should be all number indices, this is unsafe to use on any other tables.  The first table from deepClone may not be in order (due to nils being weird), so we need a comparison of indices.
 local function getLastIndex(tbl): number
     local final: number = 0
     for i in tbl do
@@ -905,7 +903,7 @@ local function getLastIndex(tbl): number
     return final
 end
 
-local function shallowClone(myTable, callType: string, stack: number?) -- cyclic check built in
+local function deepClone(myTable, callType: string, stack: number?) -- cyclic check built in
     stack = stack or 0 -- you can offset stack by setting the starting parameter to a number
     local newTable = {}
     local hasTable = false
@@ -921,11 +919,12 @@ local function shallowClone(myTable, callType: string, stack: number?) -- cyclic
     for i,v in next, myTable do
         if not isConsecutive or (type(i) == "number" and i <= consecutiveIndices) then
             if not started then started = true; stack += 1 end
-            local index, value = createIndex(i), nil
+            local index = createIndex(i)
             if index then
+                local value = nil
                 if type(v) == "table" then
                     hasTable = true
-                    local newTab, maxStack, _, subHasNilParentedInstance = shallowClone(v, callType, originalDepth+1)
+                    local newTab, maxStack, _, subHasNilParentedInstance = deepClone(v, callType, originalDepth+1)
                     hasNilParentedInstance = hasNilParentedInstance or subHasNilParentedInstance
                     if maxStack > stack then
                         stack = maxStack
@@ -1031,7 +1030,7 @@ local function getInstancePath(instance: Instance) -- FORKED FROM HYDROXIDE
     local head = (#name > 0 and '.' .. name) or "['']"
     
     if not instance.Parent and id ~= gameId then
-        return "(nil)" .. head .. " --[[ INSTANCE DELTED/PARENTED TO NIL ]]", false
+        return "(nil)" .. head .. " --[[ INSTANCE DELETED/PARENTED TO NIL ]]", false
         --if not instanceParentedToNil(instance) then
             --return "(nil)" .. head .. " --[[ INSTANCE DELETED FROM GAME ]]", false
         --else
@@ -1245,7 +1244,7 @@ local makeUserdataConstructor = {
         return "UDim2.new(" .. tostring(original) .. ")"
     end,
     userdata = function(original): string -- no typechecking for userdatas like this (newproxy)
-        return "nil --[[ " .. tostring(original) .. " is Unsupported ]]" -- newproxies can never be sent, and as such are reserved by the remotespy to be used when a type that could not be shallowcloned was sent.  The tostring metamethod should've been modified to refelct the original type.
+        return "nil --[[ " .. tostring(original) .. " is Unsupported ]]" -- newproxies can never be sent, and as such are reserved by the remotespy to be used when a type that could not be deepCloned was sent.  The tostring metamethod should've been modified to refelct the original type.
     end,
     Vector2 = function(original: Vector2): string
         return "Vector2.new(" .. tostring(original) .. ")"
@@ -3310,7 +3309,7 @@ end
 
 local function processReturnValue(callType: string, refTable, ...)
     deferFunc(function(...)
-        local args = shallowClone({...}, callType, -1)
+        local args = deepClone({...}, callType, -1)
         if args then
             local lastIdx = getLastIndex(args)
             refTable.Args = args
@@ -3318,7 +3317,7 @@ local function processReturnValue(callType: string, refTable, ...)
             refTable.NilCount = (select("#", ...) - lastIdx)
         else
             refTable.Args = false
-            pushError("Impossible error has occurred, please report to GameGuy#5920")
+            pushError("Impossible error 1 has occurred, please report to GameGuy#5920")
         end
     end, ...)
 
@@ -3353,7 +3352,7 @@ local function addCall(remote: Instance, remoteId: string, returnValue, spyFunc,
         }
     end
     if not callLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-        local args, tableDepth, _, hasInstance = shallowClone({...}, remote.ClassName, -1) -- 1 deeper total
+        local args, tableDepth, _, hasInstance = deepClone({...}, remote.ClassName, -1) -- 1 deeper total
         local argCount = select("#", ...)
 
         if not args or argCount > 7995 or (tableDepth > 0 and ((argCount + tableDepth) > 298)) then
@@ -3416,9 +3415,9 @@ local function addCallback(remote: Instance, method: string, func)
 
                 if not Settings.Paused then
                     local spyFunc = spyFunctions[idxs[method]]
-                    local args, _, _, hasInstance = shallowClone({...}, remoteType, -1)
+                    local args, _, _, hasInstance = deepClone({...}, remoteType, -1)
                     if not args then
-                        pushError("Impossible error has occurred, please report to GameGuy#5920")
+                        pushError("Impossible error 2 has occurred, please report to GameGuy#5920")
                         return oldfunc(...)
                     end
                     local argCount = select("#", ...)
@@ -3495,7 +3494,8 @@ local function addConnection(remote: Instance, signalType: string, signal: RBXSc
         hooksignal(signal, function(info, ...)
             if not Settings.Paused then
                 deferFunc(function(...)
-                    setThreadIdentity(8) -- coregui stupidity.  this is safe because the original thread will never see this activity
+                    local original = getThreadIdentity()
+                    setThreadIdentity(8) -- not sure why hooksignal threads aren't level 8, but I restore this later anyways, just to be safe
                     local spyFunc = spyFunctions[idxs[signalType]]
                     if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
                         if info.Index == 0 then
@@ -3518,9 +3518,9 @@ local function addConnection(remote: Instance, signalType: string, signal: RBXSc
                         originalCallerCache[remoteId] = nil
                         
                         if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
-                            local args, _, _, hasInstance = shallowClone({...}, remoteType, -1)
+                            local args, _, _, hasInstance = deepClone({...}, remoteType, -1)
                             if not args then
-                                pushError("Impossible error has occurred, please report to GameGuy#5920")
+                                pushError("Impossible error 3 has occurred, please report to GameGuy#5920")
                                 return true, ...
                             end
                             local argCount = select("#", ...)
@@ -3541,6 +3541,7 @@ local function addConnection(remote: Instance, signalType: string, signal: RBXSc
                             sendLog(remote, remoteId, data)
                         end
                     end
+                    setThreadIdentity(original)
                 end, ...)
             end
 

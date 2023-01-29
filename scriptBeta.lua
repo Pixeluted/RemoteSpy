@@ -862,7 +862,15 @@ end
 
 local function getSpecialKey(index: any): string
     local prefix = specialTypes[typeof(index)] or typeof(index)
-    return "<" .. prefix .. ">" .. " (" .. tostring(index) .. ")"
+
+    local oldMt = getrawmetatable(index)
+    local oldToString = oldMt and rawget(oldMt, "__tostring")
+
+    rawset(oldMt, "__tostring", nil)
+    local returnStr = "<" .. prefix .. ">" .. " (" .. tostring(index) .. ")"
+    rawset(oldMt, "__tostring", oldToString)
+
+    return returnStr
 end
 
 local function cloneData(data: any, callType: string)
@@ -1018,6 +1026,16 @@ local function instanceParentedToNil(instance: Instance) -- too cursed to use (i
             return true
         end
     end
+end
+
+local function isRemoteEventReplicated(remote: RemoteEvent)
+    local _, err = pcall(replicatesignal, remote.OnServerEvent)
+
+    if err == "invalid argument #1 to 'replicatesignal' (this event cannot be replicated)" then
+        return false
+    end
+
+    return true
 end
 
 local function getInstancePath(instance: Instance) -- FORKED FROM HYDROXIDE
@@ -1903,6 +1921,8 @@ local callFuncs = {}
 
 local originalCallerCache = {}
 local remoteNameCache = {}
+local remoteBlacklistCache = setmetatable({}, {__mode="kv"}) -- used to store remotes that aren't replicated to the server
+-- remoteBlacklistCache[remote] = nil or 1 or 2, 1 = allowed, 2 = blacklisted, nil = not initialized
 
 local argLines = {}
 local callbackButtonline
@@ -3344,6 +3364,15 @@ local function createCallStack(callStack)
 end
 
 local function addCall(remote: Instance, remoteId: string, returnValue, spyFunc, caller: boolean, cs: Instance, callStack, ...)
+    if not remoteBlacklistCache[remote] and spyFunc.Object == "RemoteEvent" then
+        if isRemoteEventReplicated(remote) then
+            remoteBlacklistCache[remote] = 1
+        else
+            remoteBlacklistCache[remote] = 2
+            return
+        end
+    end
+
     if not callLogs[remoteId] then
         callLogs[remoteId] = {
             Blocked = false,
@@ -3383,94 +3412,96 @@ end
 local function addCallback(remote: Instance, method: string, func)
     local oldIdentity = getThreadIdentity()
     setThreadIdentity(8)
-    local remoteId = getDebugId(remote)
-    local remoteType = remote.ClassName--isHookThread() and oldIndex(remote, "ClassName") or remote.ClassName
+    if remoteBlacklistCache[remote] ~= 2 then
+        local remoteId = getDebugId(remote)
+        local remoteType = remote.ClassName--isHookThread() and oldIndex(remote, "ClassName") or remote.ClassName
 
-    if not otherLogs[remoteId] then
-        otherLogs[remoteId] = {
-            Type = "Callback",
-            CurrentFunction = func,
-            Ignored = false,
-            Blocked = false,
-            Calls = {}
-        }
-    elseif otherLogs[remoteId].CurrentFunction then
-        local curFunc = otherLogs[remoteId].CurrentFunction
-        for i,v in _G.remoteSpyCallbackHooks do
-            if v == curFunc then
-                tableRemove(_G.remoteSpyCallbackHooks, i)
-                break
+        if not otherLogs[remoteId] then
+            otherLogs[remoteId] = {
+                Type = "Callback",
+                CurrentFunction = func,
+                Ignored = false,
+                Blocked = false,
+                Calls = {}
+            }
+        elseif otherLogs[remoteId].CurrentFunction then
+            local curFunc = otherLogs[remoteId].CurrentFunction
+            for i,v in _G.remoteSpyCallbackHooks do
+                if v == curFunc then
+                    tableRemove(_G.remoteSpyCallbackHooks, i)
+                    break
+                end
             end
+            restorefunction(curFunc)
+            otherLogs[remoteId].CurrentFunction = func
         end
-        restorefunction(curFunc)
-        otherLogs[remoteId].CurrentFunction = func
-    end
 
-    if func then
-        local oldfunc
-        oldfunc = hookfunction(func, function(...) -- lclosure, so oth.hook not applicable
-            if #getCallStack() == 2 then -- check that the function is actually being called by a cclosure
-                local oldLevel = getThreadIdentity()
-                setThreadIdentity(8) -- fix for people passing coregui as an arg, also it's here because I'm too lazy to implement at the start of every hook.  Shouldn't be too dangerous because I restore it afterwards
+        if func then
+            local oldfunc
+            oldfunc = hookfunction(func, function(...) -- lclosure, so oth.hook not applicable
+                if #getCallStack() == 2 then -- check that the function is actually being called by a cclosure
+                    local oldLevel = getThreadIdentity()
+                    setThreadIdentity(8) -- fix for people passing coregui as an arg, also it's here because I'm too lazy to implement at the start of every hook.  Shouldn't be too dangerous because I restore it afterwards
 
-                if not Settings.Paused then
-                    local spyFunc = spyFunctions[idxs[method]]
-                    local args, _, _, hasInstance = deepClone({...}, remoteType, -1)
-                    if not args then
-                        pushError("Impossible error 2 has occurred, please report to GameGuy#5920")
-                        return oldfunc(...)
-                    end
-                    local argCount = select("#", ...)
+                    if not Settings.Paused then
+                        local spyFunc = spyFunctions[idxs[method]]
+                        local args, _, _, hasInstance = deepClone({...}, remoteType, -1)
+                        if not args then
+                            pushError("Impossible error 2 has occurred, please report to GameGuy#5920")
+                            return oldfunc(...)
+                        end
+                        local argCount = select("#", ...)
 
-                    local callingScript = originalCallerCache[remoteId] or {nil, checkcaller()}
+                        local callingScript = originalCallerCache[remoteId] or {nil, checkcaller()}
 
-                    originalCallerCache[remoteId] = nil
+                        originalCallerCache[remoteId] = nil
+                        
+                        local scr = getcallingscript()
+                        if scr then scr = cloneref(scr) end
+
+                        local lastIdx = getLastIndex(args)
+
+                        local data = {
+                            HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
+                            TypeIndex = idxs[method],
+                            CallbackScript = scr,
+                            Script = callingScript[1],
+                            Args = args, -- 2 deeper total
+                            NonNilArgCount = lastIdx,
+                            CallbackLog = otherLogs[remoteId],
+                            NilCount = (argCount - lastIdx),
+                            FromSynapse = callingScript[2]
+                        }
+
+                        if spyFunc.ReturnsValue and not otherLogs[remoteId].Blocked then
+                            local returnValue = {}
+                            deferFunc(function()
+                                if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                                    data.ReturnValue = returnValue
+                                    sendLog(remote, remoteId, data)
+                                end
+                            end)
+
+                            setThreadIdentity(oldLevel)
+                            return processReturnValue(remoteType, returnValue, oldfunc(...))
+                        end
                     
-                    local scr = getcallingscript()
-                    if scr then scr = cloneref(scr) end
 
-                    local lastIdx = getLastIndex(args)
-
-                    local data = {
-                        HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
-                        TypeIndex = idxs[method],
-                        CallbackScript = scr,
-                        Script = callingScript[1],
-                        Args = args, -- 2 deeper total
-                        NonNilArgCount = lastIdx,
-                        CallbackLog = otherLogs[remoteId],
-                        NilCount = (argCount - lastIdx),
-                        FromSynapse = callingScript[2]
-                    }
-
-                    if spyFunc.ReturnsValue and not otherLogs[remoteId].Blocked then
-                        local returnValue = {}
-                        deferFunc(function()
-                            if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                                data.ReturnValue = returnValue
-                                sendLog(remote, remoteId, data)
-                            end
-                        end)
-
-                        setThreadIdentity(oldLevel)
-                        return processReturnValue(remoteType, returnValue, oldfunc(...))
+                        if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                            sendLog(remote, remoteId, data)
+                        end
                     end
-                
 
-                    if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                        sendLog(remote, remoteId, data)
+                    setThreadIdentity(oldLevel)
+                    if otherLogs[remoteId] and otherLogs[remoteId].Blocked then 
+                        return
                     end
                 end
 
-                setThreadIdentity(oldLevel)
-                if otherLogs[remoteId] and otherLogs[remoteId].Blocked then 
-                    return
-                end
-            end
-
-            return oldfunc(...)
-        end)
-        tableInsert(_G.remoteSpyCallbackHooks, func)
+                return oldfunc(...)
+            end)
+            tableInsert(_G.remoteSpyCallbackHooks, func)
+        end
     end
     setThreadIdentity(oldIdentity)
 end
@@ -3478,79 +3509,81 @@ end
 local function addConnection(remote: Instance, signalType: string, signal: RBXScriptSignal)
     local oldIdentity = getThreadIdentity()
     setThreadIdentity(8)
-    local remoteId = getDebugId(remote)
-    local remoteType = remote.ClassName--isHookThread() and oldIndex(remote, "ClassName") or remote.ClassName
+    if remoteBlacklistCache[remote] ~= 2 then
+        local remoteId = getDebugId(remote)
+        local remoteType = remote.ClassName--isHookThread() and oldIndex(remote, "ClassName") or remote.ClassName
 
-    if not otherLogs[remoteId] then
-        otherLogs[remoteId] = {
-            Type = "Connection",
-            Ignored = false,
-            Blocked = false,
-            Calls = {}
-        }
-        
-        local scriptCache = setmetatable({}, {__mode = "k"})
-        local connectionCache = {} -- unused (for now)
-        hooksignal(signal, function(info, ...)
-            if not Settings.Paused then
-                deferFunc(function(...)
-                    local original = getThreadIdentity()
-                    setThreadIdentity(8) -- not sure why hooksignal threads aren't level 8, but I restore this later anyways, just to be safe
-                    local spyFunc = spyFunctions[idxs[signalType]]
-                    if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
-                        if info.Index == 0 then
-                            tableClear(connectionCache)
-                            tableClear(scriptCache)
-                        end
+        if not otherLogs[remoteId] then
+            otherLogs[remoteId] = {
+                Type = "Connection",
+                Ignored = false,
+                Blocked = false,
+                Calls = {}
+            }
+            
+            local scriptCache = setmetatable({}, {__mode = "k"})
+            local connectionCache = {} -- unused (for now)
+            hooksignal(signal, function(info, ...)
+                if not Settings.Paused then
+                    deferFunc(function(...)
+                        local original = getThreadIdentity()
+                        setThreadIdentity(8) -- not sure why hooksignal threads aren't level 8, but I restore this later anyways, just to be safe
+                        local spyFunc = spyFunctions[idxs[signalType]]
+                        if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
+                            if info.Index == 0 then
+                                tableClear(connectionCache)
+                                tableClear(scriptCache)
+                            end
 
-                        tableInsert(connectionCache, info.Connection)
-                        local CS = issynapsethread(coroutine.running()) and "Synapse" or getcallingscript()
-                        if CS then
-                            if scriptCache[CS] then
-                                scriptCache[CS] += 1
-                            else
-                                scriptCache[CS] = 1
+                            tableInsert(connectionCache, info.Connection)
+                            local CS = issynapsethread(coroutine.running()) and "Synapse" or getcallingscript()
+                            if CS then
+                                if scriptCache[CS] then
+                                    scriptCache[CS] += 1
+                                else
+                                    scriptCache[CS] = 1
+                                end
+                            end
+
+                            local callingScript = originalCallerCache[remoteId] or {nil, false}
+
+                            originalCallerCache[remoteId] = nil
+                            
+                            if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
+                                local args, _, _, hasInstance = deepClone({...}, remoteType, -1)
+                                if not args then
+                                    pushError("Impossible error 3 has occurred, please report to GameGuy#5920")
+                                    return true, ...
+                                end
+                                local argCount = select("#", ...)
+                                local lastIdx = getLastIndex(args)
+                                local data = {
+                                    HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
+                                    TypeIndex = idxs[signalType],
+                                    Script = callingScript[1],
+                                    Scripts = scriptCache,
+                                    Connections = connectionCache,
+                                    Signal = signal,
+                                    Args = args, -- 2 deeper total
+                                    NonNilArgCount = lastIdx,
+                                    NilCount = (argCount - lastIdx),
+                                    FromSynapse = callingScript[2]
+                                }
+
+                                sendLog(remote, remoteId, data)
                             end
                         end
+                        setThreadIdentity(original)
+                    end, ...)
+                end
 
-                        local callingScript = originalCallerCache[remoteId] or {nil, false}
-
-                        originalCallerCache[remoteId] = nil
-                        
-                        if info.Index == (#getconnections(signal)-1) then -- -1 because base 0 for info.Index
-                            local args, _, _, hasInstance = deepClone({...}, remoteType, -1)
-                            if not args then
-                                pushError("Impossible error 3 has occurred, please report to GameGuy#5920")
-                                return true, ...
-                            end
-                            local argCount = select("#", ...)
-                            local lastIdx = getLastIndex(args)
-                            local data = {
-                                HasInstance = hasInstance or (not remote:IsAncestorOf(game)),
-                                TypeIndex = idxs[signalType],
-                                Script = callingScript[1],
-                                Scripts = scriptCache,
-                                Connections = connectionCache,
-                                Signal = signal,
-                                Args = args, -- 2 deeper total
-                                NonNilArgCount = lastIdx,
-                                NilCount = (argCount - lastIdx),
-                                FromSynapse = callingScript[2]
-                            }
-
-                            sendLog(remote, remoteId, data)
-                        end
-                    end
-                    setThreadIdentity(original)
-                end, ...)
-            end
-
-            if otherLogs[remoteId].Blocked then 
-                return false
-            end
-            return true, ...
-        end)
-        tableInsert(_G.remoteSpySignalHooks, signal)
+                if otherLogs[remoteId].Blocked then 
+                    return false
+                end
+                return true, ...
+            end)
+            tableInsert(_G.remoteSpySignalHooks, signal)
+        end
     end
     setThreadIdentity(oldIdentity)
 end
@@ -3605,6 +3638,47 @@ oldIndex = newHookMetamethod(game, "__index", function(remote, idx)
 end, AnyFilter.new(indexFilters))
 _G.remoteSpyHooks.Index = oldIndex
 
+local oldNewInstance
+oldNewInstance = filteredOth(Instance.new, function(instanceType: string, ...)
+    local newInstance = oldNewInstance(instanceType, ...)
+    remoteBlacklistCache[newInstance] = 2
+    
+    return newInstance
+end, AllFilter.new({
+    AnyFilter.new({
+        ArgumentFilter.new(1, "RemoteEvent"),
+        ArgumentFilter.new(1, "RemoteFunction")
+    }),
+    AnyFilter.new({
+        TypeFilter.new(2, "Instance"),
+        ArgCountFilter.new(1)
+    })
+}))
+
+local oldClone
+oldClone = filteredOth(Instance.new, function(original: Instance, ...)
+    local newInstance = oldClone(original, ...)
+    remoteBlacklistCache[newInstance] = 2
+    
+    return newInstance
+end, AllFilter.new({
+    AnyFilter.new({
+        InstanceTypeFilter.new(1, "RemoteEvent"),
+        InstanceTypeFilter.new(1, "RemoteFunction")
+    })
+}))
+
+table.insert(namecallFilters, AllFilter.new({ -- setup :Clone filter
+    AnyFilter.new({
+        NamecallFilter.new("Clone"),
+        NamecallFilter.new("clone")
+    }),
+    AnyFilter.new({
+        InstanceTypeFilter.new(1, "RemoteEvent"),
+        InstanceTypeFilter.new(1, "RemoteFunction")
+    })
+}))
+
 local initInfo = {
     RemoteFunction = { "Callback", "OnClientInvoke" },
     BindableFunction = { "Callback", "OnInvoke" },
@@ -3646,29 +3720,39 @@ do -- namecall and function hooks
     local oldNamecall
     oldNamecall = newHookMetamethod(game, "__namecall", newcclosure(function(remote, ...)
         setThreadIdentity(8) -- oth isn't stock at 8 for some reason
-        local remoteId = getDebugId(remote)
 
-        if not Settings.Paused and select("#", ...) < 7996 then
-            local scr = getcallingscript()
-            if scr then scr = cloneref(scr) end
+        local nmcMethod = getnamecallmethod()
+        if nmcMethod == "Clone" or nmcMethod == "clone" then -- faster than string.lower
+            local newInstance = oldNamecall(remote, ...)
+            remoteBlacklistCache[newInstance] = 2
 
-            local spyFunc = spyFunctions[idxs[getnamecallmethod()]]
-            if spyFunc.Type == "Call" and spyFunc.FiresLocally then
-                local caller = checkcaller()
-                originalCallerCache[remoteId] = originalCallerCache[remoteId] or {(not caller and scr), caller}
-            end
-            -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
-
-            if spyFunc.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then
-                local returnValue = {}
-                deferFunc(addCall, cloneref(remote), remoteId, returnValue, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
-
-                return processReturnValue(spyFunc.Object, returnValue, oldNamecall(remote, ...)) -- getproperties(remote).ClassName is not performant at all, but using oldIndex breaks stuff
-            end
-            deferFunc(addCall, cloneref(remote), remoteId, nil, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
+            return newInstance
         end
-    
-        if callLogs[remoteId] and callLogs[remoteId].Blocked then return end
+
+        if remoteBlacklistCache[remote] ~= 2 then
+            local remoteId = getDebugId(remote)
+            if not Settings.Paused and select("#", ...) < 7996 then
+                local scr = getcallingscript()
+                if scr then scr = cloneref(scr) end
+
+                local spyFunc = spyFunctions[idxs[nmcMethod]]
+                if spyFunc.Type == "Call" and spyFunc.FiresLocally then
+                    local caller = checkcaller()
+                    originalCallerCache[remoteId] = originalCallerCache[remoteId] or {(not caller and scr), caller}
+                end
+                -- it will either return true at checkcaller because called from synapse (non remspy), or have already been set by remspy
+
+                if spyFunc.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then
+                    local returnValue = {}
+                    deferFunc(addCall, cloneref(remote), remoteId, returnValue, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
+
+                    return processReturnValue(spyFunc.Object, returnValue, oldNamecall(remote, ...)) -- getproperties(remote).ClassName is not performant at all, but using oldIndex breaks stuff
+                end
+                deferFunc(addCall, cloneref(remote), remoteId, nil, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
+            end
+        
+            if callLogs[remoteId] and callLogs[remoteId].Blocked then return end
+        end
 
         return oldNamecall(remote, ...)
     end), AnyFilter.new(namecallFilters))
@@ -3678,27 +3762,29 @@ do -- namecall and function hooks
             local oldFunc
             local newfunction = function(remote, ...)
                 setThreadIdentity(8) -- oth isn't stock at 8 for some reason
-                local remoteId = getDebugId(remote)
+                if remoteBlacklistCache[remote] ~= 2 then
+                    local remoteId = getDebugId(remote)
 
-                if not Settings.Paused and select("#", ...) < 7996 then
-                    local scr = getcallingscript()
-                    if scr then scr = cloneref(scr) end
+                    if not Settings.Paused and select("#", ...) < 7996 then
+                        local scr = getcallingscript()
+                        if scr then scr = cloneref(scr) end
 
-                    if v.Type == "Call" and v.FiresLocally then
-                        local caller = checkcaller()
-                        originalCallerCache[remoteId] = originalCallerCache[remoteId] or {(not caller and scr), caller}
+                        if v.Type == "Call" and v.FiresLocally then
+                            local caller = checkcaller()
+                            originalCallerCache[remoteId] = originalCallerCache[remoteId] or {(not caller and scr), caller}
+                        end
+
+                        if v.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then
+                            local returnValue = {}
+                            deferFunc(addCall, cloneref(remote), remoteId, returnValue, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
+
+                            return processReturnValue(v.Object, returnValue, oldFunc(remote, ...))
+                        end
+                        deferFunc(addCall, cloneref(remote), remoteId, nil, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
                     end
-
-                    if v.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then
-                        local returnValue = {}
-                        deferFunc(addCall, cloneref(remote), remoteId, returnValue, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
-
-                        return processReturnValue(v.Object, returnValue, oldFunc(remote, ...))
-                    end
-                    deferFunc(addCall, cloneref(remote), remoteId, nil, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
+                
+                    if callLogs[remoteId] and callLogs[remoteId].Blocked then return end
                 end
-            
-                if callLogs[remoteId] and callLogs[remoteId].Blocked then return end
 
                 return oldFunc(remote, ...)
             end

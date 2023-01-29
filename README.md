@@ -1,9 +1,3 @@
-## Script
-```lua
-local url = "https://raw.githubusercontent.com/GameGuyThrowaway/RemoteSpy/main/script.lua"
-loadstring(syn.request({ Url = url }).Body)()
-```
-
 ## Beta Script
 **WARNING, YOU MUST LEFT CLICK REMOTE ARG LOGS TO VIEW OPTIONS**
 ```lua

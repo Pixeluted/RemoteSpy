@@ -866,9 +866,13 @@ local function getSpecialKey(index: any): string
     local oldMt = getrawmetatable(index)
     local oldToString = oldMt and rawget(oldMt, "__tostring")
 
-    rawset(oldMt, "__tostring", nil)
+    if oldMt then
+    	rawset(oldMt, "__tostring", nil)
+    end
     local returnStr = "<" .. prefix .. ">" .. " (" .. tostring(index) .. ")"
-    rawset(oldMt, "__tostring", oldToString)
+    if oldMt then
+    	rawset(oldMt, "__tostring", oldToString)
+    end
 
     return returnStr
 end

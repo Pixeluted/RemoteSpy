@@ -864,14 +864,15 @@ local function getSpecialKey(index: any): string
     local prefix = specialTypes[typeof(index)] or typeof(index)
 
     local oldMt = getrawmetatable(index)
-    local oldToString = oldMt and rawget(oldMt, "__tostring")
-
+    local returnStr = ""
     if oldMt then
-    	rawset(oldMt, "__tostring", nil)
-    end
-    local returnStr = "<" .. prefix .. ">" .. " (" .. tostring(index) .. ")"
-    if oldMt then
-    	rawset(oldMt, "__tostring", oldToString)
+        local oldToString = rawget(oldMt, "__tostring")
+        
+        rawset(oldMt, "__tostring", nil)
+        returnStr = "<" .. prefix .. ">" .. " (" .. tostring(index) .. ")"
+        rawset(oldMt, "__tostring", oldToString)
+    else
+        returnStr = "<" .. prefix .. ">" .. " (" .. tostring(index) .. ")"
     end
 
     return returnStr

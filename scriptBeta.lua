@@ -866,11 +866,14 @@ local function getSpecialKey(index: any): string
     local oldMt = getrawmetatable(index)
     local returnStr = ""
     if oldMt then
+        local wasReadOnly = isreadonly(oldMt)
+        if wasReadOnly then setreadonly(oldMt, false) end
         local oldToString = rawget(oldMt, "__tostring")
         
         rawset(oldMt, "__tostring", nil)
         returnStr = "<" .. prefix .. ">" .. " (" .. tostring(index) .. ")"
         rawset(oldMt, "__tostring", oldToString)
+        if wasReadOnly then setreadonly(oldMt, true) end
     else
         returnStr = "<" .. prefix .. ">" .. " (" .. tostring(index) .. ")"
     end

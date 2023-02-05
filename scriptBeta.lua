@@ -3336,7 +3336,7 @@ local function sendLog(remote: Instance, remoteId: string, data)
 end
 
 local function processReturnValue(callType: string, refTable, ...)
-    deferFunc(function(...)
+    spawnFunc(function(...)
         local args = deepClone({...}, callType, -1)
         if args then
             local lastIdx = getLastIndex(args)
@@ -3483,7 +3483,7 @@ local function addCallback(remote: Instance, method: string, func)
 
                         if spyFunc.ReturnsValue and not otherLogs[remoteId].Blocked then
                             local returnValue = {}
-                            deferFunc(function()
+                            spawnFunc(function()
                                 if not otherLogs[remoteId].Ignored and (Settings.LogHiddenRemotesCalls or spyFunc.Enabled) then
                                     data.ReturnValue = returnValue
                                     sendLog(remote, remoteId, data)
@@ -3533,7 +3533,7 @@ local function addConnection(remote: Instance, signalType: string, signal: RBXSc
             local connectionCache = {} -- unused (for now)
             hooksignal(signal, function(info, ...)
                 if not Settings.Paused then
-                    deferFunc(function(...)
+                    spawnFunc(function(...)
                         local original = getThreadIdentity()
                         setThreadIdentity(8) -- not sure why hooksignal threads aren't level 8, but I restore this later anyways, just to be safe
                         local spyFunc = spyFunctions[idxs[signalType]]
@@ -3632,7 +3632,7 @@ do -- filter setup
 end
 -- need to pass an arg telling addCallback/addConnection that the call came from a hook thread, which will use oldIndex, as opposed to being called from the getweakdescendants iteration, where oldIndex will throw an error
 oldNewIndex = newHookMetamethod(game, "__newindex", function(remote, idx, newidx)
-    deferFunc(addCallback, cloneref(remote), idx, newidx)
+    spawnFunc(addCallback, cloneref(remote), idx, newidx)
 
     return oldNewIndex(remote, idx, newidx)
 end, AnyFilter.new(newIndexFilters))
@@ -3640,7 +3640,7 @@ _G.remoteSpyHooks.NewIndex = oldNewIndex
 
 oldIndex = newHookMetamethod(game, "__index", function(remote, idx)
     local newSignal = oldIndex(remote, idx)
-    deferFunc(addConnection, cloneref(remote), idx, newSignal)
+    spawnFunc(addConnection, cloneref(remote), idx, newSignal)
 
     return newSignal
 end, AnyFilter.new(indexFilters))
@@ -3752,11 +3752,11 @@ do -- namecall and function hooks
 
                 if spyFunc.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then
                     local returnValue = {}
-                    deferFunc(addCall, cloneref(remote), remoteId, returnValue, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
+                    spawnFunc(addCall, cloneref(remote), remoteId, returnValue, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
 
                     return processReturnValue(spyFunc.Object, returnValue, oldNamecall(remote, ...)) -- getproperties(remote).ClassName is not performant at all, but using oldIndex breaks stuff
                 end
-                deferFunc(addCall, cloneref(remote), remoteId, nil, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
+                spawnFunc(addCall, cloneref(remote), remoteId, nil, spyFunc, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
             end
         
             if callLogs[remoteId] and callLogs[remoteId].Blocked then return end
@@ -3784,11 +3784,11 @@ do -- namecall and function hooks
 
                         if v.ReturnsValue and (not callLogs[remoteId] or not callLogs[remoteId].Blocked) then
                             local returnValue = {}
-                            deferFunc(addCall, cloneref(remote), remoteId, returnValue, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
+                            spawnFunc(addCall, cloneref(remote), remoteId, returnValue, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
 
                             return processReturnValue(v.Object, returnValue, oldFunc(remote, ...))
                         end
-                        deferFunc(addCall, cloneref(remote), remoteId, nil, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
+                        spawnFunc(addCall, cloneref(remote), remoteId, nil, v, checkcaller(), scr, getCallStack(getOriginalThread()), ...)
                     end
                 
                     if callLogs[remoteId] and callLogs[remoteId].Blocked then return end

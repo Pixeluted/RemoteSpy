@@ -3764,6 +3764,7 @@ do -- namecall and function hooks
 
         return oldNamecall(remote, ...)
     end), AnyFilter.new(namecallFilters))
+    _G.remoteSpyHooks.Namecall = oldNamecall
 
     for _,v in spyFunctions do
         if v.Type == "Call" then

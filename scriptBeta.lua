@@ -18,8 +18,21 @@ if islclosure(mt.__namecall) or islclosure(mt.__index) or islclosure(mt.__newind
     error("script incompatibility detected, one of your scripts has set the game's metamethods to a luaclosure, please run the remotespy prior to that script")
 end
 
-if not RenderWindow then
-    error("EXPLOIT NOT SUPPORTED - GET SYNAPSE V3")
+local execType, build = identifyexecutor()
+
+if execType == nil or build == nil then
+    error("THIS EXECUTOR IS NOT SUPPORTED")
+    return
+end
+
+if execType ~= "Synapse X" then
+    error("THIS EXECUTOR IS NOT SUPPORTED")
+    return
+end
+
+if string.split(build, "/")[1] ~= "v3" then
+    error("THIS EXECUTOR IS NOT SUPPORTED")
+    return
 end
 
 local function cleanUpSpy()
